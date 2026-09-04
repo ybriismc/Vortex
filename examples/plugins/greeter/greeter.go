@@ -1,10 +1,14 @@
-// Package greeter is an example Vortex plugin. It welcomes players, announces
+// Command greeter is an example Vortex plugin. It welcomes players, announces
 // who leaves and adds a proxy side /players command.
 //
-// To load it, import the package from cmd/vortex and rebuild the proxy:
+// Build it into the plugin directory of the proxy, which loads it on the next
+// start without the proxy having to be rebuilt:
 //
-//	_ "github.com/ybriismc/vortex/examples/plugins/greeter"
-package greeter
+//	go build -buildmode=plugin -o plugins/greeter.so ./examples/plugins/greeter
+//
+// The same file also works as a plugin compiled into the binary: rename the
+// package and import it from cmd/vortex.
+package main
 
 import (
 	"fmt"
@@ -17,6 +21,10 @@ import (
 func init() {
 	plugin.Register(&Greeter{})
 }
+
+// main is never called: a plugin is loaded, not executed. It only exists so
+// that the package builds like any other with "go build ./...".
+func main() {}
 
 // Config holds the messages of the plugin, read from plugins/greeter/config.yml.
 type Config struct {
