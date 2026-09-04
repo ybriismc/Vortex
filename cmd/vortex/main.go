@@ -3,6 +3,7 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -13,9 +14,18 @@ import (
 	"github.com/ybriismc/vortex/internal/proxy"
 )
 
+// version is set at build time with -ldflags "-X main.version=v0.0.0".
+var version = "dev"
+
 func main() {
 	path := flag.String("config", "config.yml", "path of the configuration file")
+	print := flag.Bool("version", false, "print the version and exit")
 	flag.Parse()
+
+	if *print {
+		fmt.Println("vortex", version)
+		return
+	}
 
 	conf, err := config.Load(*path)
 	if err != nil {
@@ -30,6 +40,7 @@ func main() {
 		os.Exit(1)
 	}
 
+	logger.Info("starting vortex", "version", version)
 	if err := vortex.Listen(); err != nil {
 		logger.Error("failed to start the proxy", "err", err)
 		os.Exit(1)
