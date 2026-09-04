@@ -1,0 +1,74 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to release"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build and publish
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Resolve the tag
+        id: tag
+        run: echo "value=${{ github.event.inputs.tag || github.ref_name }}" >> "$GITHUB_OUTPUT"
+
+      - name: Test
+        run: go test ./...
+
+      - name: Build the release archives
+        env:
+          VERSION: ${{ steps.tag.outputs.value }}
+        run: |
+          set -eu
+          mkdir -p dist
+          targets="linux/amd64 linux/arm64 windows/amd64 darwin/amd64 darwin/arm64"
+          for target in $targets; do
+            goos="${target%/*}"
+            goarch="${target#*/}"
+            name="vortex-${goos}-${goarch}"
+            work="build/${name}"
+            binary="vortex"
+            if [ "$goos" = "windows" ]; then binary="vortex.exe"; fi
+
+            mkdir -p "$work"
+            GOOS="$goos" GOARCH="$goarch" CGO_ENABLED=0 go build \
+              -trimpath -ldflags "-s -w -X main.version=${VERSION}" \
+              -o "${work}/${binary}" ./cmd/vortex
+            cp README.md LICENSE config.example.yml "$work/"
+
+            if [ "$goos" = "windows" ]; then
+              (cd build && zip -qr "../dist/${name}.zip" "$name")
+            else
+              tar -czf "dist/${name}.tar.gz" -C build "$name"
+            fi
+          done
+          (cd dist && sha256sum * > checksums.txt)
+          ls -la dist
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.tag.outputs.value }}
+        run: |
+          notes="changelogs/${VERSION}.md"
+          if [ -f "$notes" ]; then
+            gh release create "$VERSION" dist/* --title "Vortex $VERSION" --notes-file "$notes"
+          else
+            gh release create "$VERSION" dist/* --title "Vortex $VERSION" --generate-notes
+          fi
