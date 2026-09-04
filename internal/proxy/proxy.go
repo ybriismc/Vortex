@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"net"
 	"slices"
 	"sync/atomic"
 	"time"
@@ -15,10 +16,13 @@ import (
 	"github.com/cooldogedev/spectrum/session"
 	"github.com/cooldogedev/spectrum/util"
 	"github.com/sandertv/gophertunnel/minecraft"
+	"github.com/sandertv/gophertunnel/minecraft/protocol/login"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
+	"github.com/ybriismc/vortex/event"
 	"github.com/ybriismc/vortex/internal/config"
 	"github.com/ybriismc/vortex/internal/discovery"
 	"github.com/ybriismc/vortex/internal/guard"
+	"github.com/ybriismc/vortex/plugin"
 )
 
 // Vortex is a Spectrum proxy driven by a configuration file.
@@ -30,15 +34,21 @@ type Vortex struct {
 	discovery *discovery.Balanced
 	api       *api.API
 
+	selector *eventDiscovery
+	bus      *event.Bus
+	plugins  *plugin.Manager
+
 	animation    animationFactory
 	guardOpts    guard.Options
 	loginTimeout time.Duration
 	closed       atomic.Bool
 }
 
-// New creates a Vortex proxy from the given configuration. The listener is not
-// started yet, Listen must be called for that.
-func New(conf *config.Config, logger *slog.Logger) (*Vortex, error) {
+// New creates a Vortex proxy from the given configuration. Plugins must have
+// been loaded on the given bus before this call, so that the proxy knows which
+// packets their events need. The listener is not started yet, Listen must be
+// called for that.
+func New(conf *config.Config, logger *slog.Logger, bus *event.Bus, plugins *plugin.Manager) (*Vortex, error) {
 	if err := conf.Validate(); err != nil {
 		return nil, err
 	}
@@ -65,11 +75,21 @@ func New(conf *config.Config, logger *slog.Logger) (*Vortex, error) {
 		decode = append(decode, packet.IDPlayerAuthInput)
 	}
 
+	// Plugins only pay for the packets their events actually need.
+	if event.Subscribed[event.Chat](bus) && !slices.Contains(decode, packet.IDText) {
+		decode = append(decode, packet.IDText)
+	}
+
+	if event.Subscribed[event.Command](bus) && !slices.Contains(decode, packet.IDCommandRequest) {
+		decode = append(decode, packet.IDCommandRequest)
+	}
+
 	blocked := make(map[uint32]struct{}, len(conf.Security.BlockedPackets))
 	for _, id := range conf.Security.BlockedPackets {
 		blocked[id] = struct{}{}
 	}
 
+	selector := &eventDiscovery{inner: balancer, bus: bus}
 	opts := &util.Opts{
 		Addr: conf.Proxy.Addr,
 		// Sessions are logged in by Vortex itself, once the guard and the animation
@@ -84,8 +104,12 @@ func New(conf *config.Config, logger *slog.Logger) (*Vortex, error) {
 		conf:   conf,
 		logger: logger,
 
-		spectrum:  spectrum.NewSpectrum(balancer, logger, opts, transport),
+		spectrum:  spectrum.NewSpectrum(selector, logger, opts, transport),
 		discovery: balancer,
+		selector:  selector,
+
+		bus:     bus,
+		plugins: plugins,
 
 		animation: factory,
 		guardOpts: guard.Options{
@@ -109,6 +133,7 @@ func (v *Vortex) Listen() error {
 	}
 
 	listenConfig := minecraft.ListenConfig{
+		Allow:                  v.allow,
 		ErrorLog:               v.logger,
 		AuthenticationDisabled: !v.conf.Proxy.XboxAuthentication,
 		MaximumPlayers:         v.conf.Proxy.MaxPlayers,
@@ -127,10 +152,33 @@ func (v *Vortex) Listen() error {
 		"servers", len(v.conf.Servers.Primary),
 		"packs", len(packs),
 	)
-	if !v.conf.API.Enabled {
-		return nil
+	if v.conf.API.Enabled {
+		if err := v.listenAPI(); err != nil {
+			return err
+		}
 	}
-	return v.listenAPI()
+
+	if v.plugins != nil {
+		v.plugins.Enable(v)
+	}
+	event.Call(v.bus, &event.ProxyStart{Addr: v.conf.Proxy.Addr})
+	return nil
+}
+
+// allow answers the listener whether a connecting player may log in. It fires
+// the login event, which is where bans and whitelists belong: no session is
+// created and no server is contacted for a player rejected here.
+func (v *Vortex) allow(addr net.Addr, identity login.IdentityData, client login.ClientData) (string, bool) {
+	if !event.Subscribed[event.PlayerLogin](v.bus) {
+		return "", true
+	}
+
+	e := event.Call(v.bus, &event.PlayerLogin{Addr: addr, Identity: identity, Client: client})
+	if e.Cancelled() {
+		v.logger.Info("refused login", "username", identity.DisplayName, "addr", addr, "reason", e.Message)
+		return e.Message, false
+	}
+	return "", true
 }
 
 // Accept accepts sessions until the proxy is closed.
@@ -163,6 +211,11 @@ func (v *Vortex) Close() error {
 		return nil
 	}
 
+	event.Call(v.bus, &event.ProxyStop{})
+	if v.plugins != nil {
+		v.plugins.Disable()
+	}
+
 	if v.api != nil {
 		_ = v.api.Close()
 	}
@@ -176,15 +229,18 @@ func (v *Vortex) Close() error {
 // handle prepares an accepted session and starts its login sequence.
 func (v *Vortex) handle(s *session.Session) {
 	logger := v.logger.With("username", s.Client().IdentityData().DisplayName)
-	s.SetProcessor(guard.New(s, logger, v.guardOpts))
+	s.SetProcessor(guard.New(s, logger, v.bus, v.guardOpts))
 	s.SetAnimation(v.animation())
 	go func() {
+		defer v.selector.take(s.Client())
 		if err := s.LoginTimeout(v.loginTimeout); err != nil {
 			s.Disconnect(err.Error())
 			if !errors.Is(err, context.Canceled) {
 				logger.Error("failed to login session", "err", err)
 			}
+			return
 		}
+		event.Call(v.bus, &event.PlayerJoin{Session: s, Addr: v.selector.take(s.Client())})
 	}()
 }
 

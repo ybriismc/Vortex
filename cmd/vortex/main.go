@@ -10,8 +10,14 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/ybriismc/vortex/event"
 	"github.com/ybriismc/vortex/internal/config"
 	"github.com/ybriismc/vortex/internal/proxy"
+	"github.com/ybriismc/vortex/plugin"
+	// Plugins are compiled into the binary. Add the import of a plugin
+	// package here to load it, for example:
+	//
+	//	_ "github.com/ybriismc/vortex/examples/plugins/greeter"
 )
 
 // version is set at build time with -ldflags "-X main.version=v0.0.0".
@@ -34,7 +40,20 @@ func main() {
 	}
 
 	logger := newLogger(conf.Logging)
-	vortex, err := proxy.New(conf, logger)
+	bus := event.NewBus(logger)
+
+	// Plugins are loaded before the proxy is built: their subscriptions decide
+	// which packets the proxy has to decode.
+	var plugins *plugin.Manager
+	if conf.Plugins.Enabled {
+		plugins = plugin.NewManager(bus, logger, conf.Plugins.Directory, conf.Plugins.Disabled)
+		if err := plugins.Load(); err != nil {
+			logger.Error("failed to load the plugins", "err", err)
+			os.Exit(1)
+		}
+	}
+
+	vortex, err := proxy.New(conf, logger, bus, plugins)
 	if err != nil {
 		logger.Error("failed to create the proxy", "err", err)
 		os.Exit(1)

@@ -15,6 +15,7 @@ type Config struct {
 	Servers       Servers       `yaml:"servers"`
 	API           API           `yaml:"api"`
 	Security      Security      `yaml:"security"`
+	Plugins       Plugins       `yaml:"plugins"`
 	ResourcePacks ResourcePacks `yaml:"resource_packs"`
 	Logging       Logging       `yaml:"logging"`
 }
@@ -85,6 +86,16 @@ type RateLimit struct {
 	KickMessage string `yaml:"kick_message"`
 }
 
+// Plugins holds the options of the plugins compiled into the proxy.
+type Plugins struct {
+	// Enabled determines whether the registered plugins are loaded at all.
+	Enabled bool `yaml:"enabled"`
+	// Directory is where each plugin gets a directory for its own files.
+	Directory string `yaml:"directory"`
+	// Disabled holds the names of the plugins that must not be loaded.
+	Disabled []string `yaml:"disabled"`
+}
+
 // ResourcePacks holds the resource packs served by the proxy itself.
 type ResourcePacks struct {
 	Enabled   bool   `yaml:"enabled"`
@@ -137,6 +148,11 @@ func Default() *Config {
 			BlockedPackets: []uint32{},
 			DecodePackets:  []uint32{},
 			MaxPacketSize:  2 * 1024 * 1024,
+		},
+		Plugins: Plugins{
+			Enabled:   true,
+			Directory: "plugins",
+			Disabled:  []string{},
 		},
 		ResourcePacks: ResourcePacks{
 			Enabled:     false,
@@ -232,6 +248,10 @@ func (c *Config) Validate() error {
 
 	if c.Security.MaxPacketSize < 0 {
 		return fmt.Errorf("security.max_packet_size must not be negative")
+	}
+
+	if c.Plugins.Enabled && c.Plugins.Directory == "" {
+		return fmt.Errorf("plugins.directory must not be empty when plugins are enabled")
 	}
 	return nil
 }

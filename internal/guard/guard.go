@@ -6,6 +6,7 @@ package guard
 import (
 	"bytes"
 	"log/slog"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -15,6 +16,7 @@ import (
 	"github.com/go-gl/mathgl/mgl32"
 	"github.com/sandertv/gophertunnel/minecraft"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
+	"github.com/ybriismc/vortex/event"
 )
 
 // Options holds the rules applied by a Guard.
@@ -41,6 +43,7 @@ type Guard struct {
 
 	sess   *session.Session
 	logger *slog.Logger
+	bus    *event.Bus
 	opts   Options
 
 	limiter limiter
@@ -51,9 +54,10 @@ type Guard struct {
 // Ensure that Guard satisfies the session.Processor interface.
 var _ session.Processor = (*Guard)(nil)
 
-// New creates a Guard for the given session.
-func New(sess *session.Session, logger *slog.Logger, opts Options) *Guard {
-	return &Guard{sess: sess, logger: logger, opts: opts}
+// New creates a Guard for the given session. Events are fired on the given
+// bus, which may be nil when no plugin is loaded.
+func New(sess *session.Session, logger *slog.Logger, bus *event.Bus, opts Options) *Guard {
+	return &Guard{sess: sess, logger: logger, bus: bus, opts: opts}
 }
 
 // Dropped returns the amount of client packets dropped by the guard.
@@ -91,11 +95,46 @@ func (g *Guard) ProcessClient(ctx *session.Context, pk *packet.Packet) {
 		return
 	}
 
-	if g.opts.TrackCamera {
-		if input, ok := (*pk).(*packet.PlayerAuthInput); ok {
-			g.trackCamera(input)
+	switch decoded := (*pk).(type) {
+	case *packet.PlayerAuthInput:
+		if g.opts.TrackCamera {
+			g.trackCamera(decoded)
 		}
+	case *packet.Text:
+		g.chat(ctx, decoded)
+	case *packet.CommandRequest:
+		g.command(ctx, decoded)
 	}
+}
+
+// chat fires the chat event, letting plugins rewrite or drop the message.
+func (g *Guard) chat(ctx *session.Context, pk *packet.Text) {
+	if pk.TextType != packet.TextTypeChat || !event.Subscribed[event.Chat](g.bus) {
+		return
+	}
+
+	e := event.Call(g.bus, &event.Chat{Session: g.sess, Message: pk.Message})
+	if e.Cancelled() {
+		ctx.Cancel()
+		return
+	}
+	pk.Message = e.Message
+}
+
+// command fires the command event, which is how a plugin implements a proxy
+// side command: cancelling the event keeps the command from reaching the
+// server.
+func (g *Guard) command(ctx *session.Context, pk *packet.CommandRequest) {
+	if !event.Subscribed[event.Command](g.bus) {
+		return
+	}
+
+	e := event.Call(g.bus, &event.Command{Session: g.sess, Line: strings.TrimPrefix(pk.CommandLine, "/")})
+	if e.Cancelled() {
+		ctx.Cancel()
+		return
+	}
+	pk.CommandLine = "/" + strings.TrimPrefix(e.Line, "/")
 }
 
 // ProcessStartGame ...
@@ -104,28 +143,53 @@ func (g *Guard) ProcessStartGame(_ *session.Context, data *minecraft.GameData) {
 }
 
 // ProcessPreTransfer ...
-func (g *Guard) ProcessPreTransfer(_ *session.Context, origin *string, target *string) {
+func (g *Guard) ProcessPreTransfer(ctx *session.Context, origin *string, target *string) {
 	g.logger.Info("transferring session", "origin", *origin, "target", *target)
+	e := event.Call(g.bus, &event.Transfer{Session: g.sess, Origin: *origin, Target: *target})
+	if e.Cancelled() {
+		ctx.Cancel()
+		return
+	}
+	*target = e.Target
+}
+
+// ProcessPostTransfer ...
+func (g *Guard) ProcessPostTransfer(_ *session.Context, origin *string, target *string) {
+	event.Call(g.bus, &event.TransferComplete{Session: g.sess, Origin: *origin, Target: *target})
 }
 
 // ProcessTransferFailure ...
 func (g *Guard) ProcessTransferFailure(_ *session.Context, origin *string, target *string, err error) {
 	g.logger.Warn("failed to transfer session", "origin", *origin, "target", *target, "err", err)
+	event.Call(g.bus, &event.TransferFailed{Session: g.sess, Origin: *origin, Target: *target, Err: err})
 }
 
 // ProcessPreFallback ...
-func (g *Guard) ProcessPreFallback(_ *session.Context, origin *string, target *string) {
+func (g *Guard) ProcessPreFallback(ctx *session.Context, origin *string, target *string) {
 	g.logger.Warn("falling back session", "origin", *origin, "target", *target)
+	e := event.Call(g.bus, &event.Transfer{Session: g.sess, Origin: *origin, Target: *target, Fallback: true})
+	if e.Cancelled() {
+		ctx.Cancel()
+		return
+	}
+	*target = e.Target
+}
+
+// ProcessPostFallback ...
+func (g *Guard) ProcessPostFallback(_ *session.Context, origin *string, target *string) {
+	event.Call(g.bus, &event.TransferComplete{Session: g.sess, Origin: *origin, Target: *target, Fallback: true})
 }
 
 // ProcessFallbackFailure ...
 func (g *Guard) ProcessFallbackFailure(_ *session.Context, origin *string, target *string, err error) {
 	g.logger.Error("failed to fall back session", "origin", *origin, "target", *target, "err", err)
+	event.Call(g.bus, &event.TransferFailed{Session: g.sess, Origin: *origin, Target: *target, Fallback: true, Err: err})
 }
 
 // ProcessDisconnection ...
 func (g *Guard) ProcessDisconnection(_ *session.Context, message *string) {
 	g.logger.Info("disconnected session", "reason", *message, "dropped", g.dropped.Load())
+	event.Call(g.bus, &event.PlayerQuit{Session: g.sess, Message: *message})
 }
 
 // limit cancels the context when the session exceeds its packets per second budget.
