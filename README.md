@@ -1,79 +1,84 @@
 # Vortex
 
-Proxy de Minecraft: Bedrock Edition escrito em Go, construído sobre o
+[![Build](https://github.com/ybriismc/Vortex/actions/workflows/build.yml/badge.svg)](https://github.com/ybriismc/Vortex/actions/workflows/build.yml)
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
+A Minecraft: Bedrock Edition proxy written in Go, built on top of
 [Spectrum](https://github.com/cooldogedev/spectrum).
 
-O Vortex empacota o Spectrum em um binário pronto para produção: configuração em
-YAML, balanceamento de servidores, filtro de pacotes (rate limit, bloqueio e
-limite de tamanho), animações de transferência, resource packs e o serviço de API
-para os servidores downstream.
+Vortex packages Spectrum into a binary that is ready for production: YAML
+configuration, server balancing, packet filtering (rate limit, block list and
+size limit), transfer animations, resource packs and the API service for the
+downstream servers.
+
+📖 **Documentation:** https://ybriismc.github.io/Vortex/
 
 ---
 
-## Sobre o Spectrum
+## About Spectrum
 
-O Spectrum é a base do Vortex. Os pontos que importam para quem for operar este proxy:
+Spectrum is the foundation of Vortex. The points that matter when running this proxy:
 
-- **Protocolo próprio, sem RakNet entre proxy e servidor.** A comunicação com os
-  servidores downstream usa [Spectral](https://github.com/cooldogedev/spectral),
-  QUIC ou TCP no lugar do RakNet e do protocolo padrão do Minecraft, o que traz
-  mais confiabilidade e desempenho. Cada servidor mantém **uma única conexão**, e
-  cada jogador ocupa uma *stream* dentro dela — dialing mais barato e menos
-  overhead de conexão.
-- **Repasse de pacotes sem decodificação.** Por padrão o proxy não decodifica os
-  pacotes do jogador: ele apenas repassa os bytes. Só os IDs listados em
-  `client_decode` (no Vortex: `security.decode_packets`) são decodificados. É
-  isso que mantém o throughput alto e a latência baixa.
-- **Discovery.** Em vez de uma lista fixa de servidores, o Spectrum pergunta a uma
-  interface `Discovery` para onde mandar o jogador no login, e para onde mandá-lo
-  em caso de queda (fallback). Como a chamada é assíncrona, ela pode fazer
-  operações bloqueantes — consulta a banco de dados, HTTP — e também funciona como
-  balanceador de carga.
-- **Processor.** A interface `Processor` intercepta cada pacote que entra e sai da
-  sessão, além de eventos como transferência, fallback, cache e desconexão.
-  Qualquer pacote pode ser cancelado. É o lugar certo para anti-cheat, filtros e
-  telemetria.
-- **Stateless.** O proxy não guarda registro dos servidores existentes.
-  Transferir um jogador é apenas mandar o pacote de transfer do Spectrum a partir
-  do servidor downstream, o que torna a escala horizontal simples.
-- **Determinístico.** O Spectrum não traduz entidades: ele confia nos
-  identificadores determinísticos fornecidos pelos servidores downstream, evitando
-  toda uma camada de tradução (e de bugs).
-- **Serviço de API.** Um serviço TCP separado permite que os servidores
-  transfiram e expulsem jogadores, com autenticação por segredo e registro de
-  pacotes e handlers próprios.
-- **Animações de transferência.** A troca de servidor pode ser mascarada por
-  animações de câmera (`dimension`, `fade`, `smooth`, `ease`).
-- **Implementações compatíveis** do lado do servidor:
-  [spectrum-df](https://github.com/cooldogedev/spectrum-df) (Dragonfly) e
+- **Its own protocol, no RakNet between proxy and server.** The link to the
+  downstream servers uses [Spectral](https://github.com/cooldogedev/spectral),
+  QUIC or TCP instead of RakNet and the standard Minecraft protocol, which is
+  more reliable and faster. Each server keeps **a single connection**, and each
+  player rides a *stream* inside it — cheaper dialing and less connection overhead.
+- **Packet forwarding without decoding.** By default the proxy does not decode
+  the player's packets, it simply forwards the bytes. Only the identifiers listed
+  in `client_decode` (in Vortex: `security.decode_packets`) are decoded. That is
+  what keeps the throughput high and the latency low.
+- **Discovery.** Instead of a fixed list of servers, Spectrum asks a `Discovery`
+  interface where to send the player on login, and where to send them when the
+  server dies (fallback). The call is asynchronous, so it may perform blocking
+  work — database queries, HTTP requests — and it doubles as a load balancer.
+- **Processor.** The `Processor` interface intercepts every packet entering and
+  leaving the session, plus events such as transfer, fallback, cache and
+  disconnection. Any packet can be cancelled. It is the right place for
+  anti-cheat, filters and telemetry.
+- **Stateless.** The proxy keeps no registry of the existing servers.
+  Transferring a player is just sending Spectrum's transfer packet from the
+  downstream server, which makes horizontal scaling simple.
+- **Deterministic.** Spectrum skips entity translation entirely: it relies on the
+  deterministic entity identifiers provided by the downstream servers, dropping a
+  whole translation layer (and its bugs).
+- **API service.** A separate TCP service lets the servers transfer and kick
+  players, with secret based authentication and support for custom packets and
+  handlers.
+- **Transfer animations.** The server switch can be masked by camera animations
+  (`dimension`, `fade`, `smooth`, `ease`).
+- **Compatible server implementations:**
+  [spectrum-df](https://github.com/cooldogedev/spectrum-df) (Dragonfly) and
   [spectrum-pm](https://github.com/cooldogedev/spectrum-pm) (PocketMine-MP).
 
-> O servidor por trás do proxy **precisa** falar o protocolo do Spectrum. Um
-> servidor Bedrock comum (RakNet puro) não funciona como downstream.
+> The server behind the proxy **must** speak the Spectrum protocol. A plain
+> Bedrock server (pure RakNet) cannot be used as a downstream server.
 
 ---
 
-## O que o Vortex adiciona
+## What Vortex adds
 
-| Recurso | Descrição |
+| Feature | Description |
 | --- | --- |
-| Configuração em YAML | `config.yml` gerado automaticamente na primeira execução |
-| Balanceamento | Pools de servidores primários e de fallback com `round_robin`, `random` ou `first` |
-| Guard | `Processor` com rate limit por sessão, bloqueio de pacotes por ID e limite de tamanho |
-| Login controlado | O guard e a animação são anexados **antes** do login da sessão começar |
-| Animações | Seleção por configuração; câmera acompanha o jogador nos modos `smooth` e `ease` |
-| API | Serviço TCP do Spectrum com autenticação por segredo, ligado por configuração |
-| Resource packs | Carregamento de uma pasta, com suporte a chaves de conteúdo |
-| Operação | Logs em texto ou JSON e desligamento limpo em `SIGINT`/`SIGTERM` |
+| YAML configuration | `config.yml` generated automatically on the first run |
+| Balancing | Primary and fallback server pools with `round_robin`, `random` or `first` |
+| Guard | A `Processor` with a per session rate limit, packet block list by ID and a size limit |
+| Controlled login | The guard and the animation are attached **before** the session login starts |
+| Animations | Selected through the configuration; the camera follows the player in `smooth` and `ease` |
+| API | Spectrum's TCP service with secret authentication, toggled by configuration |
+| Resource packs | Loaded from a directory, with content key support |
+| Operations | Text or JSON logs and a clean shutdown on `SIGINT`/`SIGTERM` |
 
 ---
 
-## Requisitos
+## Requirements
 
-- Go 1.25 ou superior
-- Um servidor downstream com Spectrum (spectrum-df ou spectrum-pm)
+- Go 1.25 or newer
+- A downstream server running Spectrum (spectrum-df or spectrum-pm)
 
-## Instalação
+## Installation
+
+### From source
 
 ```bash
 git clone https://github.com/ybriismc/Vortex.git
@@ -82,84 +87,114 @@ make build
 ./vortex
 ```
 
-Na primeira execução o `config.yml` é criado com os valores padrão. Ajuste-o e
-suba o proxy de novo. Para usar outro caminho:
+### From a release
+
+```bash
+curl -L -o vortex.tar.gz https://github.com/ybriismc/Vortex/releases/latest/download/vortex-linux-amd64.tar.gz
+tar -xzf vortex.tar.gz
+./vortex
+```
+
+The first run creates `config.yml` with the default values. Edit it and start the
+proxy again. To use another path:
 
 ```bash
 ./vortex -config /etc/vortex/config.yml
 ```
 
+### Private hosts (VPS and dedicated servers)
+
+[`start.sh`](start.sh) installs the toolchain when it is missing, builds the
+binary and starts the proxy:
+
+```bash
+./start.sh              # installs what is needed, builds and starts
+./start.sh --no-build   # starts the existing binary
+./start.sh --update     # pulls the repository, rebuilds and starts
+./start.sh --tune       # also applies the kernel network tuning (needs root)
+```
+
+### Pterodactyl
+
+The [`pterodactyl/`](pterodactyl) directory holds an egg that downloads the
+release build and starts it. Import `pterodactyl/egg-vortex.json` in the panel,
+under **Nests → Import Egg**.
+
 ---
 
-## Configuração
+## Configuration
 
-O arquivo comentado está em [`config.example.yml`](config.example.yml). Resumo das seções:
+The commented file lives in [`config.example.yml`](config.example.yml). Summary of the sections:
 
 ### `proxy`
 
-| Chave | Padrão | Descrição |
+| Key | Default | Description |
 | --- | --- | --- |
-| `addr` | `:19132` | Endereço UDP onde os jogadores entram |
-| `name` / `sub_name` | `Vortex Proxy` / `Vortex` | Texto exibido na lista de servidores |
-| `transport` | `spectral` | Transporte até os servidores: `spectral` ou `quic` |
-| `xbox_authentication` | `true` | Exige conta Xbox Live autenticada |
-| `max_players` | `0` | Limite de jogadores (`0` = ilimitado) |
-| `latency_interval` | `3000` | Intervalo em ms do relatório de latência |
-| `login_timeout` | `60` | Tempo limite em segundos da sequência de login |
-| `shutdown_message` | `Vortex closed.` | Mensagem enviada no desligamento |
-| `sync_protocol` | `false` | Fala com o servidor na versão de protocolo do cliente |
-| `transfer_animation` | `dimension` | `none`, `dimension`, `fade`, `smooth` ou `ease` |
+| `addr` | `:19132` | UDP address the players connect to |
+| `name` / `sub_name` | `Vortex Proxy` / `Vortex` | Text shown in the server list |
+| `transport` | `spectral` | Transport to the servers: `spectral` or `quic` |
+| `xbox_authentication` | `true` | Requires an authenticated Xbox Live account |
+| `max_players` | `0` | Player limit (`0` = unlimited) |
+| `latency_interval` | `3000` | Latency report interval in milliseconds |
+| `login_timeout` | `60` | Timeout of the login sequence, in seconds |
+| `shutdown_message` | `Vortex closed.` | Message sent on shutdown |
+| `sync_protocol` | `false` | Talks to the server using the client's protocol version |
+| `transfer_animation` | `dimension` | `none`, `dimension`, `fade`, `smooth` or `ease` |
 
 ### `servers`
 
-`primary` recebe os jogadores no login; `fallback` é usado quando o servidor
-atual cai no meio do jogo. `balancer` escolhe o endereço: `round_robin`,
-`random` ou `first`.
+`primary` receives the players on login; `fallback` is used when the current
+server dies mid-game. `balancer` picks the address: `round_robin`, `random` or
+`first`. Gameplay servers do not belong here — the lobby transfers players to
+them, and the proxy dials whatever address the transfer names.
 
 ### `security`
 
-- `rate_limit`: pacotes por segundo por sessão; ao estourar, o Vortex descarta os
-  pacotes (`drop`) ou desconecta o jogador (`kick`).
-- `blocked_packets`: IDs de pacotes do cliente que nunca chegam ao servidor. O ID
-  é lido direto do cabeçalho, **sem decodificar o pacote**.
-- `decode_packets`: IDs que o proxy decodifica por completo (equivale ao
-  `client_decode` do Spectrum). Quanto menor a lista, mais rápido o proxy.
-- `max_packet_size`: tamanho máximo, em bytes, de um pacote do cliente.
+- `rate_limit`: packets per second per session; when exceeded, Vortex either
+  drops the packets (`drop`) or disconnects the player (`kick`).
+- `blocked_packets`: client packet identifiers that never reach the server. The
+  identifier is read straight from the header, **without decoding the packet**.
+- `decode_packets`: identifiers the proxy fully decodes (Spectrum's
+  `client_decode`). The shorter the list, the faster the proxy.
+- `max_packet_size`: maximum size, in bytes, of a client packet.
 
 ### `api`
 
-Serviço TCP para os servidores downstream. Com `secret` preenchido, o servidor
-precisa enviar o mesmo segredo no `ConnectionRequest`. Pacotes disponíveis:
+TCP service for the downstream servers. With `secret` set, the server has to send
+the same secret in its `ConnectionRequest`. Available packets:
 
-| ID | Pacote | Efeito |
+| ID | Packet | Effect |
 | --- | --- | --- |
-| `0` | `ConnectionRequest` | Autentica o servidor no serviço |
-| `1` | `ConnectionResponse` | Resposta da autenticação |
-| `2` | `Kick` | Desconecta um jogador pelo nome |
-| `3` | `Transfer` | Transfere um jogador para outro endereço |
+| `0` | `ConnectionRequest` | Authenticates the server against the service |
+| `1` | `ConnectionResponse` | Authentication result |
+| `2` | `Kick` | Disconnects a player by username |
+| `3` | `Transfer` | Transfers a player to another address |
 
-Do lado do jogo, os pacotes do protocolo Spectrum (IDs a partir de `500`)
-permitem que o servidor peça `Transfer`, `Flush`, `Latency` e `UpdateCache`
-diretamente na conexão da sessão.
-
----
-
-## Estrutura do projeto
-
-```
-cmd/vortex          binário e leitura de flags
-internal/config     configuração em YAML, padrões e validação
-internal/discovery  server.Discovery com pools e balanceamento
-internal/guard      session.Processor com rate limit e filtros
-internal/proxy      montagem do Spectrum, animações, packs e API
-```
+On the game side, the Spectrum protocol packets (identifiers from `500` on) let
+the server request `Transfer`, `Flush`, `Latency` and `UpdateCache` directly on
+the session connection.
 
 ---
 
-## Ajuste de kernel (Linux)
+## Project layout
 
-Sob carga alta, os buffers de rede padrão do Linux podem ser pequenos demais e
-causar erros ou desconexões aleatórias. Recomendação do Spectrum:
+```
+cmd/vortex          binary and flag parsing
+internal/config     YAML configuration, defaults and validation
+internal/discovery  server.Discovery with pools and balancing
+internal/guard      session.Processor with rate limit and filters
+internal/proxy      Spectrum wiring, animations, packs and API
+docs                GitHub Pages documentation
+changelogs          release notes
+pterodactyl         egg for the Pterodactyl panel
+```
+
+---
+
+## Kernel tuning (Linux)
+
+Under heavy load the default Linux network buffers may be too small and cause
+random errors or disconnections. Spectrum's recommendation:
 
 ```bash
 sysctl -w net.core.rmem_max=7500000
@@ -167,12 +202,29 @@ sysctl -w net.core.wmem_max=7500000
 sysctl -w net.ipv4.tcp_rmem="4096 87380 7500000"
 ```
 
+`./start.sh --tune` applies these values for you.
+
 ---
 
-## Créditos
+## Development
 
-- [Spectrum](https://github.com/cooldogedev/spectrum) e
-  [Spectral](https://github.com/cooldogedev/spectral), por
+```bash
+make fmt    # gofmt
+make vet    # go vet
+go test ./...
+make build
+```
+
+---
+
+## Credits
+
+- [Spectrum](https://github.com/cooldogedev/spectrum) and
+  [Spectral](https://github.com/cooldogedev/spectral), by
   [cooldogedev](https://github.com/cooldogedev)
-- [gophertunnel](https://github.com/sandertv/gophertunnel), por
+- [gophertunnel](https://github.com/sandertv/gophertunnel), by
   [Sandertv](https://github.com/Sandertv)
+
+## License
+
+[MIT](LICENSE)
