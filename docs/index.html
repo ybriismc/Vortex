@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vortex — Minecraft: Bedrock proxy</title>
+<meta name="description" content="Vortex is a Minecraft: Bedrock Edition proxy written in Go, built on top of Spectrum: YAML configuration, server balancing, packet filtering and transfer animations.">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<div class="layout">
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-mark">V</div>
+      <div class="brand-name">Vortex</div>
+    </div>
+    <p class="brand-tag">Bedrock proxy powered by Spectrum</p>
+
+    <nav class="nav">
+      <a href="#overview">Overview</a>
+      <a href="#architecture">Architecture</a>
+      <a href="#install">Installation</a>
+
+      <div class="nav-title">Reference</div>
+      <a href="#configuration">Configuration</a>
+      <a href="#security">Security</a>
+      <a href="#api">API</a>
+      <a href="#transports">Transports</a>
+
+      <div class="nav-title">Deployment</div>
+      <a href="#pterodactyl">Pterodactyl</a>
+      <a href="#private-hosts">Private hosts</a>
+      <a href="#tuning">Kernel tuning</a>
+
+      <div class="nav-title">Project</div>
+      <a href="#releases">Releases</a>
+      <a href="#credits">Credits</a>
+    </nav>
+  </aside>
+
+  <main class="content">
+    <header class="hero">
+      <h1>Vortex</h1>
+      <p>
+        A Minecraft: Bedrock Edition proxy written in Go, built on top of
+        <a href="https://github.com/cooldogedev/spectrum">Spectrum</a>. YAML configuration,
+        server balancing, packet filtering, transfer animations and an API for your
+        downstream servers — in a single binary.
+      </p>
+      <div class="badges">
+        <span class="badge">Go 1.25+</span>
+        <span class="badge">Spectral &amp; QUIC</span>
+        <span class="badge">Stateless</span>
+        <span class="badge">MIT licensed</span>
+      </div>
+      <div class="actions">
+        <a class="button primary" href="https://github.com/ybriismc/Vortex/releases/latest">Download</a>
+        <a class="button" href="https://github.com/ybriismc/Vortex">GitHub</a>
+        <a class="button" href="https://github.com/ybriismc/Vortex/blob/main/changelogs/CHANGELOG.md">Changelog</a>
+      </div>
+    </header>
+
+    <section id="overview">
+      <h2>Overview</h2>
+      <p>
+        Vortex packages Spectrum into a proxy that is ready for production. Spectrum handles the
+        protocol — a single connection per downstream server, one stream per player, no RakNet
+        between proxy and server — while Vortex adds everything an operator needs to run it.
+      </p>
+
+      <div class="grid">
+        <div class="card">
+          <h4>Balanced discovery</h4>
+          <p>Primary and fallback server pools with round robin, random or first strategies.</p>
+        </div>
+        <div class="card">
+          <h4>Packet guard</h4>
+          <p>Per session rate limit, block list by packet identifier and a maximum packet size.</p>
+        </div>
+        <div class="card">
+          <h4>Transfer animations</h4>
+          <p>Dimension, fade, smooth and ease, with the camera following the player.</p>
+        </div>
+        <div class="card">
+          <h4>API service</h4>
+          <p>TCP service with secret authentication so servers can transfer and kick players.</p>
+        </div>
+        <div class="card">
+          <h4>Resource packs</h4>
+          <p>Served once by the proxy, with content key support, and never re-sent on transfers.</p>
+        </div>
+        <div class="card">
+          <h4>Operations</h4>
+          <p>Text or JSON logs, config validation on boot and a clean shutdown on SIGINT/SIGTERM.</p>
+        </div>
+      </div>
+
+      <div class="note">
+        <strong>Requirement:</strong> the servers behind the proxy must speak the Spectrum protocol —
+        <a href="https://github.com/cooldogedev/spectrum-df">spectrum-df</a> (Dragonfly) or
+        <a href="https://github.com/cooldogedev/spectrum-pm">spectrum-pm</a> (PocketMine-MP).
+        A plain RakNet Bedrock server cannot be used as a downstream server.
+      </div>
+    </section>
+
+    <section id="architecture">
+      <h2>Architecture</h2>
+      <p>
+        Players hold a single RakNet connection to the proxy and never reconnect. Vortex swaps the
+        server side of the session, which is why a server switch has no loading screen, no new
+        handshake and no resource pack re-download.
+      </p>
+
+      <div class="diagram">                   ┌──────────────────────────────┐
+   Player ──RakNet────▶│  Vortex (proxy) :19132       │
+   (one connection,    │  discovery · guard · API     │
+    never reconnects)  └───┬───────────┬───────────┬──┘
+                           │ spectral/quic — one connection per server,
+                           │               one stream per player
+                ┌──────────▼─┐   ┌──────▼──────┐   ┌▼────────────┐
+                │  Lobby-1   │   │  BedWars-1  │   │  SkyWars-1  │
+                │  Lobby-2   │   │  BedWars-2  │   │  ...        │
+                └────────────┘   └─────────────┘   └─────────────┘
+                   (primary)         reached through transfers</div>
+
+      <h3>Login</h3>
+      <p>
+        The discovery picks an address from <code>servers.primary</code> using the configured
+        balancer and the proxy dials it. Only the lobbies belong in the configuration file.
+      </p>
+
+      <h3>Lobby to gameplay</h3>
+      <p>
+        Gameplay servers are never listed in the proxy. The downstream server asks for the transfer,
+        either through Spectrum's own <code>Transfer</code> packet (identifier <code>504</code>) or
+        through the API service. Vortex dials whatever address the transfer names, so adding a new
+        gameplay server needs no proxy restart.
+      </p>
+
+      <h3>Failure</h3>
+      <p>
+        If the server a player is on dies, Spectrum falls back to an address from
+        <code>servers.fallback</code> — usually the lobbies — instead of dropping the player. A
+        transfer that fails simply leaves the player where they are and is logged with its origin
+        and target.
+      </p>
+    </section>
+
+    <section id="install">
+      <h2>Installation</h2>
+
+      <h3>From a release</h3>
+<pre><code>curl -L -o vortex.tar.gz https://github.com/ybriismc/Vortex/releases/latest/download/vortex-linux-amd64.tar.gz
+tar -xzf vortex.tar.gz
+./vortex</code></pre>
+
+      <h3>From source</h3>
+<pre><code>git clone https://github.com/ybriismc/Vortex.git
+cd Vortex
+make build
+./vortex</code></pre>
+
+      <p>
+        The first run writes <code>config.yml</code> with the default values. Edit it and start the
+        proxy again, or point the binary elsewhere with <code>./vortex -config /etc/vortex/config.yml</code>.
+      </p>
+    </section>
+
+    <section id="configuration">
+      <h2>Configuration</h2>
+      <p>
+        The commented reference lives in
+        <a href="https://github.com/ybriismc/Vortex/blob/main/config.example.yml">config.example.yml</a>.
+        The configuration is validated before the listener starts, so a typo fails fast instead of
+        at the first player.
+      </p>
+
+      <h3>proxy</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Key</th><th>Default</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td><code>addr</code></td><td><code>:19132</code></td><td>UDP address the players connect to</td></tr>
+            <tr><td><code>name</code> / <code>sub_name</code></td><td><code>Vortex Proxy</code></td><td>Text shown in the server list</td></tr>
+            <tr><td><code>transport</code></td><td><code>spectral</code></td><td>Transport to the servers: <code>spectral</code> or <code>quic</code></td></tr>
+            <tr><td><code>xbox_authentication</code></td><td><code>true</code></td><td>Requires an authenticated Xbox Live account</td></tr>
+            <tr><td><code>max_players</code></td><td><code>0</code></td><td>Player limit, <code>0</code> means unlimited</td></tr>
+            <tr><td><code>latency_interval</code></td><td><code>3000</code></td><td>Latency report interval in milliseconds</td></tr>
+            <tr><td><code>login_timeout</code></td><td><code>60</code></td><td>Timeout of the login sequence, in seconds</td></tr>
+            <tr><td><code>shutdown_message</code></td><td><code>Vortex closed.</code></td><td>Message sent to players on shutdown</td></tr>
+            <tr><td><code>sync_protocol</code></td><td><code>false</code></td><td>Talks to servers using the client's protocol version</td></tr>
+            <tr><td><code>transfer_animation</code></td><td><code>dimension</code></td><td><code>none</code>, <code>dimension</code>, <code>fade</code>, <code>smooth</code> or <code>ease</code></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>servers</h3>
+<pre><code>servers:
+  balancer: round_robin        # round_robin, random or first
+  primary:                     # where players land on login
+    - "10.0.0.10:19133"
+    - "10.0.0.11:19133"
+  fallback:                    # where they go if that server dies
+    - "10.0.0.10:19133"</code></pre>
+
+      <h3>resource_packs and logging</h3>
+      <p>
+        Packs are read from <code>resource_packs.directory</code>, optionally with content keys, and
+        may be made mandatory. Logging takes a level (<code>debug</code>, <code>info</code>,
+        <code>warn</code>, <code>error</code>) and a JSON toggle for log shippers.
+      </p>
+    </section>
+
+    <section id="security">
+      <h2>Security</h2>
+      <p>
+        The guard is a Spectrum <code>Processor</code> attached to every session
+        <em>before</em> its login sequence starts, so no packet reaches a server unfiltered.
+      </p>
+
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Key</th><th>Effect</th></tr></thead>
+          <tbody>
+            <tr><td><code>rate_limit.packets_per_second</code></td><td>Budget per session per second</td></tr>
+            <tr><td><code>rate_limit.action</code></td><td><code>drop</code> discards the excess, <code>kick</code> disconnects the player</td></tr>
+            <tr><td><code>blocked_packets</code></td><td>Client packet identifiers that never reach the server</td></tr>
+            <tr><td><code>decode_packets</code></td><td>Identifiers the proxy fully decodes (Spectrum's <code>client_decode</code>)</td></tr>
+            <tr><td><code>max_packet_size</code></td><td>Maximum size, in bytes, of a client packet</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="note">
+        Blocking reads the identifier straight from the packet header, so a blocked packet is
+        <strong>never decoded</strong>. Keep <code>decode_packets</code> as short as possible — every
+        identifier in that list costs CPU on every packet of that type.
+      </div>
+
+      <p>
+        Any downstream server can ask for a transfer to any address, so keep the proxy, the servers
+        and the API on a private network or VPN, and always set <code>api.secret</code>.
+      </p>
+    </section>
+
+    <section id="api">
+      <h2>API</h2>
+      <p>
+        Spectrum's TCP service lets your servers and external tooling act on live sessions. Enable it
+        under <code>api</code>, set a secret and connect with the client of your server
+        implementation.
+      </p>
+
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>ID</th><th>Packet</th><th>Effect</th></tr></thead>
+          <tbody>
+            <tr><td><code>0</code></td><td><code>ConnectionRequest</code></td><td>Authenticates the server against the service</td></tr>
+            <tr><td><code>1</code></td><td><code>ConnectionResponse</code></td><td>Authentication result</td></tr>
+            <tr><td><code>2</code></td><td><code>Kick</code></td><td>Disconnects a player by username</td></tr>
+            <tr><td><code>3</code></td><td><code>Transfer</code></td><td>Transfers a player to another address</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>
+        On the game side, the Spectrum protocol packets (identifiers from <code>500</code>) let a
+        server request <code>Transfer</code>, <code>Flush</code>, <code>Latency</code> and
+        <code>UpdateCache</code> directly on the session connection.
+      </p>
+    </section>
+
+    <section id="transports">
+      <h2>Transports</h2>
+      <p>Both transports multiplex players as streams over a single UDP connection per server.</p>
+
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th></th><th>Spectral</th><th>QUIC</th></tr></thead>
+          <tbody>
+            <tr><td>Base</td><td>Plain UDP, custom protocol</td><td>RFC 9000, via quic-go</td></tr>
+            <tr><td>Encryption</td><td>None — frames travel in the clear</td><td>TLS 1.3 (certificate not verified)</td></tr>
+            <tr><td>Handshake</td><td>One round trip, no crypto</td><td>TLS handshake</td></tr>
+            <tr><td>CPU cost</td><td>Lower</td><td>Higher, encrypts every packet</td></tr>
+            <tr><td>Congestion control</td><td>Reno and Cubic, pacing, MTU discovery</td><td>Cubic</td></tr>
+            <tr><td>Maturity</td><td>Small project, Go and PHP</td><td>IETF standard, widely tested</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>
+        Use <strong>spectral</strong> when the proxy and the servers share a private network — it is
+        the cheapest option. Use <strong>quic</strong> when the traffic leaves that network. The
+        setting is global: every downstream server must listen on the same transport.
+      </p>
+    </section>
+
+    <section id="pterodactyl">
+      <h2>Pterodactyl</h2>
+      <p>
+        Import <code>pterodactyl/egg-vortex.json</code> in the panel under
+        <strong>Nests → Import Egg</strong>. The install script downloads the release build for the
+        node's architecture and writes a default <code>config.yml</code>; the panel keeps
+        <code>proxy.addr</code> in sync with the allocated port. To update the proxy, change
+        <code>VERSION</code> and reinstall the server.
+      </p>
+
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Variable</th><th>Default</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td><code>VERSION</code></td><td><code>latest</code></td><td>Release tag to install, for example <code>v0.1.0</code></td></tr>
+            <tr><td><code>CONFIG_FILE</code></td><td><code>config.yml</code></td><td>Configuration file passed to the binary</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="private-hosts">
+      <h2>Private hosts</h2>
+      <p>
+        On a VPS or dedicated machine, <code>start.sh</code> installs what is missing (Go, git,
+        curl), builds the binary, creates the configuration file and starts the proxy.
+      </p>
+
+<pre><code>./start.sh              # install, build and start
+./start.sh --no-build   # start the existing binary
+./start.sh --update     # pull the repository, rebuild and start
+./start.sh --tune       # also apply the kernel network tuning (needs root)
+./start.sh --help       # every flag</code></pre>
+
+      <p>
+        The script installs Go into <code>~/.local/go</code> when the system package is missing or
+        too old, so it works without root on most hosts.
+      </p>
+    </section>
+
+    <section id="tuning">
+      <h2>Kernel tuning</h2>
+      <p>
+        Under heavy load the default Linux network buffers are too small for a UDP proxy and cause
+        random errors and disconnections. Raise them before going to production:
+      </p>
+<pre><code>sysctl -w net.core.rmem_max=7500000
+sysctl -w net.core.wmem_max=7500000
+sysctl -w net.ipv4.tcp_rmem="4096 87380 7500000"</code></pre>
+      <p>Persist the values in <code>/etc/sysctl.d/</code>, or run <code>./start.sh --tune</code>.</p>
+    </section>
+
+    <section id="releases">
+      <h2>Releases</h2>
+      <p>
+        Every tagged version ships builds for Linux, Windows and macOS on amd64 and arm64, and its
+        notes live in
+        <a href="https://github.com/ybriismc/Vortex/tree/main/changelogs">changelogs/</a>.
+        The build workflow runs <code>go vet</code>, the tests and a cross-platform build on every
+        push.
+      </p>
+    </section>
+
+    <section id="credits">
+      <h2>Credits</h2>
+      <ul>
+        <li><a href="https://github.com/cooldogedev/spectrum">Spectrum</a> and
+            <a href="https://github.com/cooldogedev/spectral">Spectral</a>, by
+            <a href="https://github.com/cooldogedev">cooldogedev</a></li>
+        <li><a href="https://github.com/sandertv/gophertunnel">gophertunnel</a>, by
+            <a href="https://github.com/Sandertv">Sandertv</a></li>
+      </ul>
+      <footer>
+        Vortex is released under the
+        <a href="https://github.com/ybriismc/Vortex/blob/main/LICENSE">MIT license</a>.
+        Not affiliated with Mojang or Microsoft.
+      </footer>
+    </section>
+  </main>
+</div>
+
+<button class="menu-toggle" type="button">Menu</button>
+<script src="assets/app.js"></script>
+</body>
+</html>
