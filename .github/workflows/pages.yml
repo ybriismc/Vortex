@@ -26,11 +26,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # enablement turns Pages on through the API when the repository has not
-      # been configured for it yet, instead of failing the run.
+      # Pages has to be enabled once by hand, under Settings -> Pages, with
+      # "Build and deployment -> Source" set to GitHub Actions. The workflow
+      # token can publish to Pages but is not allowed to create the site.
       - uses: actions/configure-pages@v5
-        with:
-          enablement: true
 
       - uses: actions/upload-pages-artifact@v3
         with:
