@@ -1,0 +1,55 @@
+{
+    "_comment": "Vortex - Minecraft: Bedrock Edition proxy powered by Spectrum. https://github.com/ybriismc/Vortex",
+    "meta": {
+        "version": "PTDL_v2",
+        "update_url": null
+    },
+    "exported_at": "2026-09-04T00:00:00+00:00",
+    "name": "Vortex",
+    "author": "ybriismc@gmail.com",
+    "description": "Minecraft: Bedrock Edition proxy written in Go, built on top of Spectrum. The downstream servers must run spectrum-df or spectrum-pm.",
+    "features": [
+        "eula",
+        "bedrock_ping"
+    ],
+    "docker_images": {
+        "Debian": "ghcr.io/parkervcp/yolks:debian"
+    },
+    "file_denylist": [],
+    "startup": "./vortex -config {{CONFIG_FILE}}",
+    "config": {
+        "files": "{\"config.yml\": {\"parser\": \"yaml\", \"find\": {\"proxy.addr\": \":{{server.build.default.port}}\"}}}",
+        "startup": "{\"done\": \"vortex is ready\"}",
+        "logs": "{}",
+        "stop": "^C"
+    },
+    "scripts": {
+        "installation": {
+            "script": "#!/bin/bash\n# Vortex installation script for Pterodactyl.\n# Downloads the release build from GitHub and prepares the server directory.\n\nset -e\n\napt-get update -qq\napt-get install -y -qq curl ca-certificates tar\n\nmkdir -p /mnt/server\ncd /mnt/server\n\ncase \"$(uname -m)\" in\n    x86_64|amd64) ARCH=\"amd64\" ;;\n    aarch64|arm64) ARCH=\"arm64\" ;;\n    *) echo \"unsupported architecture: $(uname -m)\"; exit 1 ;;\nesac\n\nREPO=\"ybriismc/Vortex\"\nARCHIVE=\"vortex-linux-${ARCH}.tar.gz\"\n\nif [ -z \"${VERSION}\" ] || [ \"${VERSION}\" = \"latest\" ]; then\n    URL=\"https://github.com/${REPO}/releases/latest/download/${ARCHIVE}\"\nelse\n    URL=\"https://github.com/${REPO}/releases/download/${VERSION}/${ARCHIVE}\"\nfi\n\necho \"downloading ${URL}\"\ncurl -fsSL -o /tmp/vortex.tar.gz \"${URL}\"\ntar -xzf /tmp/vortex.tar.gz --strip-components=1 -C /mnt/server\nrm -f /tmp/vortex.tar.gz\nchmod +x /mnt/server/vortex\n\nCONFIG=\"${CONFIG_FILE:-config.yml}\"\nif [ ! -f \"/mnt/server/${CONFIG}\" ]; then\n    if [ -f /mnt/server/config.example.yml ]; then\n        cp /mnt/server/config.example.yml \"/mnt/server/${CONFIG}\"\n    else\n        curl -fsSL -o \"/mnt/server/${CONFIG}\" \\\n            \"https://raw.githubusercontent.com/${REPO}/main/config.example.yml\"\n    fi\n    echo \"created ${CONFIG}\"\nfi\n\necho \"installation finished, remember to set servers.primary in ${CONFIG}\"\n",
+            "container": "ghcr.io/pterodactyl/installers:debian",
+            "entrypoint": "bash"
+        }
+    },
+    "variables": [
+        {
+            "name": "Version",
+            "description": "Release to install, for example v0.1.0. Use latest for the newest release. Reinstall the server to apply a change.",
+            "env_variable": "VERSION",
+            "default_value": "latest",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|string|max:32",
+            "field_type": "text"
+        },
+        {
+            "name": "Config file",
+            "description": "Configuration file passed to the proxy.",
+            "env_variable": "CONFIG_FILE",
+            "default_value": "config.yml",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|string|max:64",
+            "field_type": "text"
+        }
+    ]
+}
