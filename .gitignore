@@ -30,3 +30,8 @@ go.work.sum
 # Editor/IDE
 # .idea/
 # .vscode/
+
+# Vortex
+/vortex
+/config.yml
+/resource_packs/

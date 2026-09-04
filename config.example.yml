@@ -1,0 +1,68 @@
+# Configuração de exemplo do Proxy Vortex.
+# Copie para config.yml. Se config.yml não existir, o Vortex gera um com estes padrões.
+
+proxy:
+  # Endereço UDP (RakNet) onde os jogadores entram.
+  addr: ":19132"
+  # Nome e sub-nome exibidos na lista de servidores do cliente.
+  name: "Vortex Proxy"
+  sub_name: "Vortex"
+  # Transporte usado para falar com os servidores downstream: spectral ou quic.
+  transport: "spectral"
+  # Exige autenticação Xbox Live dos jogadores.
+  xbox_authentication: true
+  # Limite de jogadores. 0 = ilimitado.
+  max_players: 0
+  # Intervalo em milissegundos do relatório de latência enviado ao servidor.
+  latency_interval: 3000
+  # Tempo limite, em segundos, de toda a sequência de login.
+  login_timeout: 60
+  # Mensagem exibida aos jogadores quando o proxy é desligado.
+  shutdown_message: "Vortex closed."
+  # Usa a versão de protocolo do cliente ao falar com os servidores.
+  sync_protocol: false
+  # Animação da transferência: none, dimension, fade, smooth ou ease.
+  transfer_animation: "dimension"
+
+servers:
+  # Estratégia de balanceamento: round_robin, random ou first.
+  balancer: "round_robin"
+  # Servidores que recebem os jogadores no login.
+  primary:
+    - "127.0.0.1:19133"
+  # Servidores usados quando o servidor atual cai. Pode ficar vazio.
+  fallback: []
+
+api:
+  # Serviço TCP usado pelos servidores para transferir e expulsar jogadores.
+  enabled: false
+  addr: "127.0.0.1:19131"
+  # Segredo de autenticação. Vazio desativa a autenticação (não recomendado).
+  secret: ""
+
+security:
+  rate_limit:
+    enabled: true
+    packets_per_second: 500
+    # drop descarta os pacotes excedentes, kick desconecta o jogador.
+    action: "drop"
+    kick_message: "You are sending packets too fast."
+  # IDs de pacotes do cliente que nunca são repassados ao servidor.
+  blocked_packets: []
+  # IDs de pacotes do cliente que o proxy decodifica por completo.
+  # Todo o resto é repassado sem decodificação, que é o que mantém o proxy rápido.
+  decode_packets: []
+  # Tamanho máximo, em bytes, de um pacote do cliente. 0 desativa a checagem.
+  max_packet_size: 2097152
+
+resource_packs:
+  enabled: false
+  directory: "resource_packs"
+  required: false
+  # Mapa de UUID do pacote para a chave de conteúdo.
+  content_keys: {}
+
+logging:
+  # debug, info, warn ou error.
+  level: "info"
+  json: false
