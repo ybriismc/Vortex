@@ -55,6 +55,15 @@ security:
   # Tamanho máximo, em bytes, de um pacote do cliente. 0 desativa a checagem.
   max_packet_size: 2097152
 
+plugins:
+  # Plugins são compilados junto com o binário: importe o pacote do plugin em
+  # cmd/vortex e recompile. Veja docs/plugins.html.
+  enabled: true
+  # Pasta onde cada plugin recebe um diretório para seus próprios arquivos.
+  directory: "plugins"
+  # Nomes de plugins que não devem ser carregados.
+  disabled: []
+
 resource_packs:
   enabled: false
   directory: "resource_packs"

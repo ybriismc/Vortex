@@ -28,6 +28,10 @@
       <a href="#api">API</a>
       <a href="#transports">Transports</a>
 
+      <div class="nav-title">Extending</div>
+      <a href="#plugins">Plugins</a>
+      <a href="plugins.html">Plugin API →</a>
+
       <div class="nav-title">Deployment</div>
       <a href="#pterodactyl">Pterodactyl</a>
       <a href="#private-hosts">Private hosts</a>
@@ -89,6 +93,10 @@
         <div class="card">
           <h4>Resource packs</h4>
           <p>Served once by the proxy, with content key support, and never re-sent on transfers.</p>
+        </div>
+        <div class="card">
+          <h4>Plugins</h4>
+          <p>Go plugin API with an event bus, priorities and cancellable events.</p>
         </div>
         <div class="card">
           <h4>Operations</h4>
@@ -294,6 +302,32 @@ make build
         the cheapest option. Use <strong>quic</strong> when the traffic leaves that network. The
         setting is global: every downstream server must listen on the same transport.
       </p>
+    </section>
+
+    <section id="plugins">
+      <h2>Plugins</h2>
+      <p>
+        Vortex has a plugin API: a plugin subscribes to proxy events — login, join, quit, server
+        selection, transfer, chat, commands — and acts on the proxy through a small interface
+        (transfer, kick, message, broadcast, edit the server pools).
+      </p>
+      <p>
+        Plugins are compiled into the binary: they register from an <code>init</code> function and
+        you import the package in <code>cmd/vortex</code>. That trades hot loading for real Go
+        types, direct calls and no serialization on the event path.
+      </p>
+
+<pre><code>func (w *Welcome) Load(ctx *plugin.Context) error {
+    event.Subscribe(ctx.Bus(), func(e *event.PlayerJoin) {
+        w.proxy.Broadcast("§e" + e.Session.Client().IdentityData().DisplayName + " joined!")
+    }, event.Normal)
+    return nil
+}</code></pre>
+
+      <div class="actions">
+        <a class="button primary" href="plugins.html">Read the plugin API</a>
+        <a class="button" href="https://github.com/ybriismc/Vortex/tree/main/examples/plugins/greeter">Example plugin</a>
+      </div>
     </section>
 
     <section id="pterodactyl">

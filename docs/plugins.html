@@ -1,0 +1,508 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vortex — Plugin API</title>
+<meta name="description" content="How to write Vortex plugins: lifecycle, event bus, every event the proxy fires and the proxy functions a plugin can call.">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<div class="layout">
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-mark">V</div>
+      <div class="brand-name">Vortex</div>
+    </div>
+    <p class="brand-tag">Plugin API</p>
+
+    <nav class="nav">
+      <a href="index.html">← Documentation</a>
+
+      <div class="nav-title">Getting started</div>
+      <a href="#model">The model</a>
+      <a href="#first">Your first plugin</a>
+      <a href="#lifecycle">Lifecycle</a>
+      <a href="#config">Configuration</a>
+
+      <div class="nav-title">Reference</div>
+      <a href="#bus">Event bus</a>
+      <a href="#events">Events</a>
+      <a href="#proxy">Proxy functions</a>
+
+      <div class="nav-title">Recipes</div>
+      <a href="#commands">Proxy commands</a>
+      <a href="#bans">Bans and whitelists</a>
+      <a href="#routing">Custom routing</a>
+      <a href="#pitfalls">Pitfalls</a>
+    </nav>
+  </aside>
+
+  <main class="content">
+    <header class="hero">
+      <h1>Plugin API</h1>
+      <p>
+        Vortex plugins are Go packages that subscribe to proxy events and act on the proxy
+        through a small API. This page covers the lifecycle, every event the proxy fires and
+        every function a plugin can call.
+      </p>
+      <div class="badges">
+        <span class="badge">package plugin</span>
+        <span class="badge">package event</span>
+        <span class="badge">compile-time</span>
+      </div>
+    </header>
+
+    <section id="model">
+      <h2>The model</h2>
+      <p>
+        Plugins are <strong>compiled into the proxy binary</strong>. A plugin registers itself
+        from an <code>init</code> function; you add its package to the imports of
+        <code>cmd/vortex</code> and rebuild.
+      </p>
+      <div class="note">
+        Go has no reliable way of loading code at runtime. Its <code>plugin</code> package
+        (<code>.so</code> files) only works on Linux and macOS, requires the plugin and the proxy
+        to be built with the exact same Go version <em>and</em> the same version of every shared
+        dependency, and cannot unload. Compiling plugins in trades hot loading for something that
+        always works: real Go types, direct calls, no serialization, no version roulette.
+      </div>
+      <p>What that buys you, compared to a proxy that loads jars at runtime:</p>
+      <ul>
+        <li>A plugin holds a real <code>*session.Session</code> and calls methods on it.</li>
+        <li>No IPC and no serialization on the event path.</li>
+        <li>A compile error instead of a crash when the proxy API changes.</li>
+      </ul>
+      <p>And what it costs: to add, update or remove a plugin you rebuild and restart the proxy.</p>
+    </section>
+
+    <section id="first">
+      <h2>Your first plugin</h2>
+      <p>Create a package anywhere in your module — or in a fork of Vortex under <code>plugins/</code>:</p>
+
+<pre><code>package welcome
+
+import (
+    "fmt"
+
+    "github.com/ybriismc/vortex/event"
+    "github.com/ybriismc/vortex/plugin"
+)
+
+func init() { plugin.Register(&amp;Welcome{}) }
+
+type Welcome struct {
+    plugin.Base // no-op Enable and Disable
+
+    proxy plugin.Proxy
+}
+
+func (*Welcome) Manifest() plugin.Manifest {
+    return plugin.Manifest{
+        Name:        "welcome",
+        Version:     "1.0.0",
+        Author:      "you",
+        Description: "Greets players when they join.",
+    }
+}
+
+func (w *Welcome) Load(ctx *plugin.Context) error {
+    event.Subscribe(ctx.Bus(), func(e *event.PlayerJoin) {
+        name := e.Session.Client().IdentityData().DisplayName
+        ctx.Logger().Info("player joined", "username", name, "server", e.Addr)
+        w.proxy.Broadcast(fmt.Sprintf("§e%v joined!", name))
+    }, event.Normal)
+    return nil
+}
+
+func (w *Welcome) Enable(proxy plugin.Proxy) error {
+    w.proxy = proxy
+    return nil
+}</code></pre>
+
+      <p>Then load it by importing the package in <code>cmd/vortex/main.go</code> and rebuilding:</p>
+
+<pre><code>import (
+    _ "github.com/you/yourmodule/welcome"
+)</code></pre>
+
+      <p>
+        A complete, working example lives in
+        <a href="https://github.com/ybriismc/Vortex/tree/main/examples/plugins/greeter"><code>examples/plugins/greeter</code></a>.
+      </p>
+    </section>
+
+    <section id="lifecycle">
+      <h2>Lifecycle</h2>
+      <p>The <code>Plugin</code> interface has four methods, three of which run in a fixed order:</p>
+
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Method</th><th>When</th><th>What belongs here</th></tr></thead>
+          <tbody>
+            <tr><td><code>Manifest() Manifest</code></td><td>At registration</td><td>Name, version, author, description, dependencies</td></tr>
+            <tr><td><code>Load(*Context) error</code></td><td>Before the listener starts</td><td>Subscribe to events, read configuration, open databases</td></tr>
+            <tr><td><code>Enable(Proxy) error</code></td><td>Once the proxy is listening</td><td>Store the <code>Proxy</code>, start background work</td></tr>
+            <tr><td><code>Disable() error</code></td><td>On shutdown, reverse order</td><td>Flush files, close connections</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>
+        The split matters: subscriptions have to exist <em>before</em> the proxy is built, because
+        Vortex decides which packets to decode from what the plugins listen for. Embed
+        <code>plugin.Base</code> to get no-op <code>Enable</code> and <code>Disable</code>.
+      </p>
+
+      <h3>Dependencies</h3>
+      <p>
+        <code>Manifest.Depends</code> names plugins that must load first. Vortex sorts plugins so
+        dependencies load and enable before their dependents, and disables them in reverse order.
+        A plugin whose dependency is missing is skipped with a warning — as is every plugin
+        depending on it. A dependency cycle stops the proxy with an error.
+      </p>
+      <p>
+        A plugin can be turned off without recompiling through <code>plugins.disabled</code> in
+        <code>config.yml</code>.
+      </p>
+    </section>
+
+    <section id="config">
+      <h2>Configuration and files</h2>
+      <p>
+        Each plugin owns a directory under <code>plugins.directory</code>, named after it.
+        <code>Context.Config</code> reads <code>config.yml</code> from it — and, when the file does
+        not exist yet, writes the defaults you passed in, so the first run seeds the file:
+      </p>
+
+<pre><code>type Config struct {
+    Welcome string   `yaml:"welcome"`
+    Admins  []string `yaml:"admins"`
+}
+
+func (w *Welcome) Load(ctx *plugin.Context) error {
+    w.conf = Config{Welcome: "§eWelcome, %v!"} // defaults
+    if err := ctx.Config(&amp;w.conf); err != nil {
+        return err
+    }
+    ...
+}</code></pre>
+
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Function</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td><code>ctx.Manifest()</code></td><td>The plugin's own manifest</td></tr>
+            <tr><td><code>ctx.Bus()</code></td><td>The event bus, tagged with the plugin's name</td></tr>
+            <tr><td><code>ctx.Logger()</code></td><td>A <code>*slog.Logger</code> tagged with the plugin's name</td></tr>
+            <tr><td><code>ctx.Dir()</code></td><td>The plugin's directory, created on demand</td></tr>
+            <tr><td><code>ctx.Config(v)</code></td><td>Reads <code>config.yml</code> into <code>v</code>, seeding it on the first run</td></tr>
+            <tr><td><code>ctx.SaveConfig(v)</code></td><td>Writes <code>v</code> back to <code>config.yml</code></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>Returning an error from <code>Load</code> skips the plugin; the proxy keeps running.</p>
+    </section>
+
+    <section id="bus">
+      <h2>Event bus</h2>
+      <p>Three generic functions, and that is the whole API:</p>
+
+<pre><code>event.Subscribe(bus, func(e *event.PlayerJoin) { ... }, event.Normal)
+event.Call(bus, &amp;event.PlayerJoin{...})   // fired by the proxy
+event.Subscribed[event.Chat](bus)         // does anything listen?</code></pre>
+
+      <h3>Priorities</h3>
+      <p>
+        Handlers run from <code>Lowest</code> to <code>Monitor</code>; handlers of the same
+        priority run in subscription order. Put decisions early and observation late:
+      </p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Priority</th><th>Use for</th></tr></thead>
+          <tbody>
+            <tr><td><code>event.Lowest</code>, <code>event.Low</code></td><td>Defaults another plugin may override</td></tr>
+            <tr><td><code>event.Normal</code></td><td>Ordinary handlers</td></tr>
+            <tr><td><code>event.High</code>, <code>event.Highest</code></td><td>Decisions that must win, such as a ban check</td></tr>
+            <tr><td><code>event.Monitor</code></td><td>Logging and metrics — runs last and sees the final state</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>Cancelling</h3>
+      <p>
+        Events carrying <code>event.Cancelling</code> can be stopped with <code>e.Cancel()</code>.
+        Every handler still runs after a cancellation — check <code>e.Cancelled()</code> if that
+        matters to yours. What cancelling means depends on the event, and is documented per event
+        below.
+      </p>
+
+      <h3>Panics</h3>
+      <p>
+        A handler that panics is logged with the plugin's name and the event type, and the
+        remaining handlers still run. A broken plugin degrades one event instead of taking the
+        proxy down.
+      </p>
+    </section>
+
+    <section id="events">
+      <h2>Events</h2>
+      <p>Every event lives in <code>package event</code>. Fields listed are the ones you act on.</p>
+
+      <h3>Proxy</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Event</th><th>Fired</th><th>Fields</th></tr></thead>
+          <tbody>
+            <tr><td><code>ProxyStart</code></td><td>Listener up, plugins enabled</td><td><code>Addr</code></td></tr>
+            <tr><td><code>ProxyStop</code></td><td>Shutdown begins</td><td>—</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>Player</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Event</th><th>Fired</th><th>Cancel means</th><th>Fields</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><code>PlayerLogin</code></td>
+              <td>Client identified itself, before the login sequence</td>
+              <td>Reject the connection with <code>Message</code></td>
+              <td><code>Addr</code>, <code>Identity</code>, <code>Client</code>, <code>Message</code></td>
+            </tr>
+            <tr>
+              <td><code>PlayerJoin</code></td>
+              <td>Player spawned on its first server</td>
+              <td>—</td>
+              <td><code>Session</code>, <code>Addr</code></td>
+            </tr>
+            <tr>
+              <td><code>PlayerQuit</code></td>
+              <td>Player left the proxy</td>
+              <td>—</td>
+              <td><code>Session</code>, <code>Message</code></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        <code>PlayerLogin</code> is the cheapest place to refuse someone: no session exists yet and
+        no server has been contacted. <code>Identity</code> holds the XUID, UUID and display name
+        and is verified by Xbox Live; <code>Client</code> is sent by the client and can be forged.
+      </p>
+
+      <h3>Servers</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Event</th><th>Fired</th><th>Cancel means</th><th>Fields</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><code>ServerSelect</code></td>
+              <td>A server was picked, before dialing it</td>
+              <td>Refuse the connection</td>
+              <td><code>Conn</code>, <code>Addr</code> (writable), <code>Fallback</code></td>
+            </tr>
+            <tr>
+              <td><code>Transfer</code></td>
+              <td>Before moving the player to another server</td>
+              <td>Keep the player where it is</td>
+              <td><code>Session</code>, <code>Origin</code>, <code>Target</code> (writable), <code>Fallback</code></td>
+            </tr>
+            <tr>
+              <td><code>TransferComplete</code></td>
+              <td>Player connected to the new server</td>
+              <td>—</td>
+              <td><code>Session</code>, <code>Origin</code>, <code>Target</code>, <code>Fallback</code></td>
+            </tr>
+            <tr>
+              <td><code>TransferFailed</code></td>
+              <td>The move failed; the player stays put</td>
+              <td>—</td>
+              <td><code>Session</code>, <code>Origin</code>, <code>Target</code>, <code>Fallback</code>, <code>Err</code></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        <code>Fallback</code> tells the two cases apart: a transfer requested by a server, and a
+        fallback the proxy performs because the server the player was on died.
+      </p>
+
+      <h3>Chat and commands</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Event</th><th>Fired</th><th>Cancel means</th><th>Fields</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><code>Chat</code></td>
+              <td>Player sent a chat message</td>
+              <td>Drop the message before the server sees it</td>
+              <td><code>Session</code>, <code>Message</code> (writable)</td>
+            </tr>
+            <tr>
+              <td><code>Command</code></td>
+              <td>Player ran a command</td>
+              <td>Handle it on the proxy; the server never sees it</td>
+              <td><code>Session</code>, <code>Line</code> (writable, no leading slash)</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="note">
+        <strong>These two cost CPU.</strong> Vortex forwards client packets without decoding them —
+        that is where its throughput comes from. Subscribing to <code>Chat</code> or
+        <code>Command</code> makes the proxy decode text and command packets for every player.
+        It only does so if something is actually subscribed, so do not subscribe "just in case".
+      </div>
+    </section>
+
+    <section id="proxy">
+      <h2>Proxy functions</h2>
+      <p>
+        <code>Enable</code> hands the plugin a <code>plugin.Proxy</code>. Store it — it is the only
+        way to act on the proxy from a handler.
+      </p>
+
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Function</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td><code>Logger() *slog.Logger</code></td><td>The proxy logger</td></tr>
+            <tr><td><code>Sessions() []*session.Session</code></td><td>Every connected session</td></tr>
+            <tr><td><code>Session(username) *session.Session</code></td><td>Session by username, case insensitive; nil when offline</td></tr>
+            <tr><td><code>SessionByXUID(xuid) *session.Session</code></td><td>Session by XUID; nil when offline</td></tr>
+            <tr><td><code>Count() int</code></td><td>Amount of connected players</td></tr>
+            <tr><td><code>Transfer(username, addr) error</code></td><td>Move a player to another server</td></tr>
+            <tr><td><code>Kick(username, reason) error</code></td><td>Disconnect a player</td></tr>
+            <tr><td><code>Message(username, message) error</code></td><td>Send a chat message to one player</td></tr>
+            <tr><td><code>Broadcast(message)</code></td><td>Send a chat message to everyone</td></tr>
+            <tr><td><code>Servers() []string</code></td><td>The primary server pool</td></tr>
+            <tr><td><code>SetServers([]string) error</code></td><td>Replace the primary pool; connected players stay put</td></tr>
+            <tr><td><code>Fallbacks() []string</code></td><td>The fallback pool</td></tr>
+            <tr><td><code>SetFallbacks([]string)</code></td><td>Replace the fallback pool</td></tr>
+            <tr><td><code>Plugins() []Manifest</code></td><td>Manifests of the enabled plugins</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>
+        Anything beyond this list is reachable through the session itself:
+        <code>s.Client()</code> gives the player's <code>*minecraft.Conn</code>,
+        <code>s.Server()</code> the current server connection, <code>s.Latency()</code> the ping,
+        <code>s.Transfer(addr)</code> and <code>s.Disconnect(msg)</code> act on that one player.
+      </p>
+    </section>
+
+    <section id="commands">
+      <h2>Recipe: a proxy side command</h2>
+      <p>Subscribe to <code>Command</code>, cancel the event, answer the player:</p>
+
+<pre><code>event.Subscribe(ctx.Bus(), func(e *event.Command) {
+    fields := strings.Fields(e.Line)
+    if len(fields) == 0 || !strings.EqualFold(fields[0], "hub") {
+        return
+    }
+
+    e.Cancel() // the server never sees the command
+    name := e.Session.Client().IdentityData().DisplayName
+    if err := p.proxy.Transfer(name, "10.0.0.10:19133"); err != nil {
+        _ = p.proxy.Message(name, "§cCould not send you to the hub.")
+    }
+}, event.Normal)</code></pre>
+
+      <div class="note">
+        <strong>Bedrock caveat:</strong> the client only sends commands it knows about, from the
+        command tree the server gave it. If no server registers <code>/hub</code>, the client
+        refuses it locally and the proxy never sees it. Register the command on your servers (a
+        no-op is enough — the proxy cancels it before it arrives), or trigger on a chat prefix
+        through the <code>Chat</code> event instead, which always reaches the proxy.
+      </div>
+    </section>
+
+    <section id="bans">
+      <h2>Recipe: bans and whitelists</h2>
+      <p>
+        Do it in <code>PlayerLogin</code>, at <code>event.High</code> so it wins over other
+        handlers. The player is rejected before a session exists:
+      </p>
+
+<pre><code>event.Subscribe(ctx.Bus(), func(e *event.PlayerLogin) {
+    ban, ok := store.Lookup(e.Identity.XUID)
+    if !ok {
+        return
+    }
+
+    e.Message = "§cYou are banned: " + ban.Reason
+    e.Cancel()
+}, event.High)</code></pre>
+
+      <p>
+        To also drop a player already online when a ban lands, call
+        <code>proxy.Kick(username, reason)</code>. Key bans on <code>Identity.XUID</code>, not on
+        the display name: names change, XUIDs do not.
+      </p>
+    </section>
+
+    <section id="routing">
+      <h2>Recipe: custom routing</h2>
+      <p>
+        <code>ServerSelect</code> runs after the balancer picked an address and lets you override
+        it — per rank, per region, per queue, from your own database:
+      </p>
+
+<pre><code>event.Subscribe(ctx.Bus(), func(e *event.ServerSelect) {
+    if e.Fallback {
+        return // let the fallback pool do its job
+    }
+
+    if addr, ok := lobbyFor(e.Conn.IdentityData().XUID); ok {
+        e.Addr = addr
+    }
+}, event.Normal)</code></pre>
+
+      <p>
+        The call is synchronous and blocking work is allowed here — Spectrum discovers servers
+        asynchronously, one goroutine per login. Keep it bounded anyway: it sits in the login path.
+      </p>
+    </section>
+
+    <section id="pitfalls">
+      <h2>Pitfalls</h2>
+      <ul>
+        <li>
+          <strong>Do not block a handler for long.</strong> Transfer and chat events run on the
+          session's own goroutine; a slow handler delays that player's packets. Hand slow work to
+          a goroutine, or do it in <code>ServerSelect</code>, which is already off the hot path.
+        </li>
+        <li>
+          <strong>Handlers run concurrently across sessions.</strong> One goroutine per player
+          means your shared state needs a mutex.
+        </li>
+        <li>
+          <strong>Store the <code>Proxy</code> in <code>Enable</code>, not in <code>Load</code>.</strong>
+          It does not exist yet while plugins load.
+        </li>
+        <li>
+          <strong>Do not subscribe to <code>Chat</code> or <code>Command</code> unless you use
+          them</strong> — each one turns on packet decoding for every player.
+        </li>
+        <li>
+          <strong>Trust <code>Identity</code>, not <code>Client</code>.</strong> Client data is
+          whatever the player's client claims.
+        </li>
+      </ul>
+      <footer>
+        Vortex is released under the
+        <a href="https://github.com/ybriismc/Vortex/blob/main/LICENSE">MIT license</a>.
+        Not affiliated with Mojang or Microsoft.
+      </footer>
+    </section>
+  </main>
+</div>
+
+<button class="menu-toggle" type="button">Menu</button>
+<script src="assets/app.js"></script>
+</body>
+</html>
