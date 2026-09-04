@@ -28,6 +28,9 @@ jobs:
         id: tag
         run: echo "value=${{ github.event.inputs.tag || github.ref_name }}" >> "$GITHUB_OUTPUT"
 
+      - name: Install the arm64 cross compiler
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq gcc-aarch64-linux-gnu
+
       - name: Test
         run: go test ./...
 
@@ -46,8 +49,19 @@ jobs:
             binary="vortex"
             if [ "$goos" = "windows" ]; then binary="vortex.exe"; fi
 
+            # Linux builds enable cgo so that the proxy can load plugins from
+            # its plugin directory. Go cannot load plugins on Windows, and
+            # cross-compiling cgo for macOS would need an Apple toolchain, so
+            # those builds stay static.
+            cgo=0
+            cc=""
+            case "$goos/$goarch" in
+              linux/amd64) cgo=1 ;;
+              linux/arm64) cgo=1; cc="aarch64-linux-gnu-gcc" ;;
+            esac
+
             mkdir -p "$work"
-            GOOS="$goos" GOARCH="$goarch" CGO_ENABLED=0 go build \
+            GOOS="$goos" GOARCH="$goarch" CGO_ENABLED="$cgo" CC="$cc" go build \
               -trimpath -ldflags "-s -w -X main.version=${VERSION}" \
               -o "${work}/${binary}" ./cmd/vortex
             cp README.md LICENSE config.example.yml "$work/"

@@ -94,6 +94,8 @@ ensure_tools() {
     command -v curl >/dev/null 2>&1 || missing+=("curl")
     command -v tar  >/dev/null 2>&1 || missing+=("tar")
     command -v git  >/dev/null 2>&1 || missing+=("git")
+    # Loading plugins at runtime needs cgo, which needs a C compiler.
+    command -v cc >/dev/null 2>&1 || command -v gcc >/dev/null 2>&1 || missing+=("gcc")
 
     if [ ${#missing[@]} -eq 0 ]; then
         return 0
@@ -190,11 +192,32 @@ build_binary() {
     version="$(git -C "$ROOT" describe --tags --always --dirty 2>/dev/null || echo dev)"
 
     log "building vortex ${version}"
-    # Lets Go fetch the toolchain the module asks for when the local one is older.
-    GOTOOLCHAIN="${GOTOOLCHAIN:-auto}" CGO_ENABLED=0 go build \
+    # CGO_ENABLED=1 is what allows the proxy to load plugins from plugins/ at
+    # startup. GOTOOLCHAIN lets Go fetch the toolchain the module asks for when
+    # the local one is older.
+    GOTOOLCHAIN="${GOTOOLCHAIN:-auto}" CGO_ENABLED=1 go build \
         -C "$ROOT" -trimpath -ldflags "-s -w -X main.version=${version}" \
         -o "$BINARY" ./cmd/vortex
     log "built ${BINARY}"
+    build_plugins
+}
+
+# build_plugins compiles the plugin sources found in plugins/src into loadable
+# plugin files, so that dropping a plugin's sources there is enough.
+build_plugins() {
+    local src="${ROOT}/plugins/src"
+    [ -d "$src" ] || return 0
+
+    local dir name
+    for dir in "$src"/*/; do
+        [ -d "$dir" ] || continue
+        name="$(basename "$dir")"
+        log "building plugin ${name}"
+        if ! GOTOOLCHAIN="${GOTOOLCHAIN:-auto}" CGO_ENABLED=1 go build \
+            -C "$ROOT" -buildmode=plugin -o "plugins/${name}.so" "./plugins/src/${name}"; then
+            warn "failed to build plugin ${name}, skipping it"
+        fi
+    done
 }
 
 # ensure_config creates the configuration file on the first run.
