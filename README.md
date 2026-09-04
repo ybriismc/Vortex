@@ -66,6 +66,7 @@ Spectrum is the foundation of Vortex. The points that matter when running this p
 | Controlled login | The guard and the animation are attached **before** the session login starts |
 | Animations | Selected through the configuration; the camera follows the player in `smooth` and `ease` |
 | API | Spectrum's TCP service with secret authentication, toggled by configuration |
+| Plugins | Go plugin API with an event bus, priorities and cancellable events |
 | Resource packs | Loaded from a directory, with content key support |
 | Operations | Text or JSON logs and a clean shutdown on `SIGINT`/`SIGTERM` |
 
@@ -176,10 +177,56 @@ the session connection.
 
 ---
 
+## Plugins
+
+A plugin subscribes to proxy events and acts on the proxy through a small API.
+Plugins are compiled into the binary: they register from an `init` function and
+you import the package in `cmd/vortex`.
+
+```go
+func init() { plugin.Register(&Welcome{}) }
+
+type Welcome struct {
+	plugin.Base
+
+	proxy plugin.Proxy
+}
+
+func (*Welcome) Manifest() plugin.Manifest {
+	return plugin.Manifest{Name: "welcome", Version: "1.0.0"}
+}
+
+func (w *Welcome) Load(ctx *plugin.Context) error {
+	event.Subscribe(ctx.Bus(), func(e *event.PlayerJoin) {
+		w.proxy.Broadcast("§e" + e.Session.Client().IdentityData().DisplayName + " joined!")
+	}, event.Normal)
+	return nil
+}
+
+func (w *Welcome) Enable(proxy plugin.Proxy) error {
+	w.proxy = proxy
+	return nil
+}
+```
+
+Events: `ProxyStart`, `ProxyStop`, `PlayerLogin`, `PlayerJoin`, `PlayerQuit`,
+`ServerSelect`, `Transfer`, `TransferComplete`, `TransferFailed`, `Chat` and
+`Command`. The cancellable ones let a plugin refuse a login, reroute a player,
+stop a transfer or handle a command on the proxy.
+
+Full reference — lifecycle, every event, every proxy function and the
+pitfalls: **https://ybriismc.github.io/Vortex/plugins.html**. A working example
+lives in [`examples/plugins/greeter`](examples/plugins/greeter).
+
+---
+
 ## Project layout
 
 ```
 cmd/vortex          binary and flag parsing
+event               event bus and the events plugins subscribe to
+plugin              plugin API: manifest, lifecycle, context, proxy
+examples/plugins    example plugin
 internal/config     YAML configuration, defaults and validation
 internal/discovery  server.Discovery with pools and balancing
 internal/guard      session.Processor with rate limit and filters

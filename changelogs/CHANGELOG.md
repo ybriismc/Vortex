@@ -11,6 +11,25 @@ workflow publishes as the release notes.
 
 Nothing yet.
 
+## [0.2.0] - 2026-09-04
+
+Plugin API. See [v0.2.0.md](v0.2.0.md).
+
+### Added
+
+- `plugin` package: plugin lifecycle (`Manifest`, `Load`, `Enable`, `Disable`),
+  registration from `init`, dependency ordering, per plugin directory, logger
+  and `config.yml`.
+- `event` package: generic event bus with priorities, cancellable events and
+  panic recovery around handlers.
+- Events for the proxy lifecycle, logins, joins, quits, server selection,
+  transfers, fallbacks, chat and commands.
+- `plugin.Proxy`: sessions, transfer, kick, message, broadcast and the server
+  pools.
+- `plugins` section in the configuration and an example plugin in
+  `examples/plugins/greeter`.
+- Plugin API documentation page.
+
 ## [0.1.0] - 2026-09-04
 
 First release. See [v0.1.0.md](v0.1.0.md).
@@ -31,5 +50,6 @@ First release. See [v0.1.0.md](v0.1.0.md).
 - GitHub Pages documentation, build and release workflows, a Pterodactyl egg and
   a start script for private hosts.
 
-[Unreleased]: https://github.com/ybriismc/Vortex/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/ybriismc/Vortex/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/ybriismc/Vortex/releases/tag/v0.2.0
 [0.1.0]: https://github.com/ybriismc/Vortex/releases/tag/v0.1.0
