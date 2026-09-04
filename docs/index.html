@@ -96,7 +96,7 @@
         </div>
         <div class="card">
           <h4>Plugins</h4>
-          <p>Go plugin API with an event bus, priorities and cancellable events.</p>
+          <p>Loaded from plugins/ at startup, with an event bus, priorities and cancellable events.</p>
         </div>
         <div class="card">
           <h4>Operations</h4>
@@ -312,9 +312,11 @@ make build
         (transfer, kick, message, broadcast, edit the server pools).
       </p>
       <p>
-        Plugins are compiled into the binary: they register from an <code>init</code> function and
-        you import the package in <code>cmd/vortex</code>. That trades hot loading for real Go
-        types, direct calls and no serialization on the event path.
+        Plugins are built with <code>go build -buildmode=plugin</code> and dropped in the
+        <code>plugins/</code> directory: the proxy loads them at startup, with no rebuild and no
+        imports to edit. Go requires the proxy to be built with cgo (the Linux releases are), the
+        platform to be Linux or macOS, and the plugin to be built against the same Vortex version.
+        A plugin can also be compiled into the binary instead.
       </p>
 
 <pre><code>func (w *Welcome) Load(ctx *plugin.Context) error {

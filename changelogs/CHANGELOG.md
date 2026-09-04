@@ -11,6 +11,27 @@ workflow publishes as the release notes.
 
 Nothing yet.
 
+## [0.3.0] - 2026-09-04
+
+Plugins loaded from the plugin directory. See [v0.3.0.md](v0.3.0.md).
+
+### Added
+
+- `plugin.Loader`, which opens the `.so` files in the plugin directory at
+  startup, so a plugin can be added without rebuilding the proxy.
+- Actionable errors for the conditions Go imposes on plugins: a proxy built
+  without cgo, a platform that cannot load plugins, a version mismatch or a
+  wrong architecture.
+- `make plugin` and `make plugins`, and automatic rebuilds of `plugins/src/*`
+  in `start.sh`.
+- A loader test that builds the example plugin and loads it.
+
+### Changed
+
+- Linux release builds are dynamically linked (cgo) so they can load plugins;
+  Windows and macOS builds stay static and cannot.
+- The example plugin is a `main` package, built as a plugin file.
+
 ## [0.2.0] - 2026-09-04
 
 Plugin API. See [v0.2.0.md](v0.2.0.md).
@@ -50,6 +71,7 @@ First release. See [v0.1.0.md](v0.1.0.md).
 - GitHub Pages documentation, build and release workflows, a Pterodactyl egg and
   a start script for private hosts.
 
-[Unreleased]: https://github.com/ybriismc/Vortex/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/ybriismc/Vortex/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/ybriismc/Vortex/releases/tag/v0.3.0
 [0.2.0]: https://github.com/ybriismc/Vortex/releases/tag/v0.2.0
 [0.1.0]: https://github.com/ybriismc/Vortex/releases/tag/v0.1.0

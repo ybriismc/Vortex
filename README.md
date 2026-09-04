@@ -66,7 +66,7 @@ Spectrum is the foundation of Vortex. The points that matter when running this p
 | Controlled login | The guard and the animation are attached **before** the session login starts |
 | Animations | Selected through the configuration; the camera follows the player in `smooth` and `ease` |
 | API | Spectrum's TCP service with secret authentication, toggled by configuration |
-| Plugins | Go plugin API with an event bus, priorities and cancellable events |
+| Plugins | Loaded from `plugins/` at startup, with an event bus, priorities and cancellable events |
 | Resource packs | Loaded from a directory, with content key support |
 | Operations | Text or JSON logs and a clean shutdown on `SIGINT`/`SIGTERM` |
 
@@ -180,11 +180,16 @@ the session connection.
 ## Plugins
 
 A plugin subscribes to proxy events and acts on the proxy through a small API.
-Plugins are compiled into the binary: they register from an `init` function and
-you import the package in `cmd/vortex`.
+Build it with `-buildmode=plugin` and drop it in `plugins/`: the proxy loads it
+at startup, with no rebuild and no imports to edit.
 
 ```go
+package main
+
 func init() { plugin.Register(&Welcome{}) }
+
+// main is never called: a plugin is loaded, not executed.
+func main() {}
 
 type Welcome struct {
 	plugin.Base
@@ -214,7 +219,24 @@ Events: `ProxyStart`, `ProxyStop`, `PlayerLogin`, `PlayerJoin`, `PlayerQuit`,
 `Command`. The cancellable ones let a plugin refuse a login, reroute a player,
 stop a transfer or handle a command on the proxy.
 
-Full reference — lifecycle, every event, every proxy function and the
+Build and install it:
+
+```bash
+go build -buildmode=plugin -o plugins/welcome.so ./plugins/src/welcome
+# or
+make plugin DIR=./plugins/src/welcome
+```
+
+Go loads plugins under strict conditions: the proxy must be built with
+`CGO_ENABLED=1` (the Linux releases and `make build` are), the platform must be
+Linux or macOS, and the plugin must be built with the same Go toolchain and the
+same Vortex version — so **rebuild your plugins when you update the proxy**. A
+plugin that fails to load is reported with the fix and skipped, and the proxy
+still starts. Plugins cannot be unloaded, so changing one means restarting.
+Alternatively a plugin can be compiled into the binary: rename its package and
+import it from `cmd/vortex`.
+
+Full reference — building, lifecycle, every event, every proxy function and the
 pitfalls: **https://ybriismc.github.io/Vortex/plugins.html**. A working example
 lives in [`examples/plugins/greeter`](examples/plugins/greeter).
 
@@ -227,6 +249,7 @@ cmd/vortex          binary and flag parsing
 event               event bus and the events plugins subscribe to
 plugin              plugin API: manifest, lifecycle, context, proxy
 examples/plugins    example plugin
+plugins             plugin files loaded at startup
 internal/config     YAML configuration, defaults and validation
 internal/discovery  server.Discovery with pools and balancing
 internal/guard      session.Processor with rate limit and filters

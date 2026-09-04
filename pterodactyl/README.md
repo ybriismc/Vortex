@@ -36,6 +36,14 @@ server — the install script downloads the build again.
 - Enabling the API (`api.enabled: true`) needs a **second allocation**, and its
   address has to be set manually in `config.yml`. Keep it on a private interface.
 
+## Plugins
+
+The Linux release build is dynamically linked, so it loads plugins: upload the
+`.so` files to the `plugins/` directory of the server and restart it. Each
+plugin also gets a directory of its own there for its `config.yml`. Plugins must
+be built against the same Vortex version the server runs, so rebuild them when
+you change `VERSION`.
+
 ## After installing
 
 Edit `config.yml` and set `servers.primary` to your lobbies. Gameplay servers do

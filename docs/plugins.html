@@ -23,6 +23,7 @@
       <div class="nav-title">Getting started</div>
       <a href="#model">The model</a>
       <a href="#first">Your first plugin</a>
+      <a href="#build">Build and install</a>
       <a href="#lifecycle">Lifecycle</a>
       <a href="#config">Configuration</a>
 
@@ -44,44 +45,102 @@
       <h1>Plugin API</h1>
       <p>
         Vortex plugins are Go packages that subscribe to proxy events and act on the proxy
-        through a small API. This page covers the lifecycle, every event the proxy fires and
-        every function a plugin can call.
+        through a small API. Drop the built plugin in the <code>plugins/</code> directory and the
+        proxy loads it on the next start — no rebuild of the proxy, no imports to edit. This page
+        covers building, the lifecycle, every event the proxy fires and every function a plugin
+        can call.
       </p>
       <div class="badges">
         <span class="badge">package plugin</span>
         <span class="badge">package event</span>
-        <span class="badge">compile-time</span>
+        <span class="badge">loaded at startup</span>
       </div>
     </header>
 
     <section id="model">
       <h2>The model</h2>
       <p>
-        Plugins are <strong>compiled into the proxy binary</strong>. A plugin registers itself
-        from an <code>init</code> function; you add its package to the imports of
-        <code>cmd/vortex</code> and rebuild.
+        A plugin is a Go <code>main</code> package built with
+        <code>go build -buildmode=plugin</code>, which produces a <code>.so</code> file. Put that
+        file in the proxy's plugin directory and Vortex opens it at startup: the plugin's
+        <code>init</code> registers it, and from there it behaves like any other plugin.
       </p>
-      <div class="note">
-        Go has no reliable way of loading code at runtime. Its <code>plugin</code> package
-        (<code>.so</code> files) only works on Linux and macOS, requires the plugin and the proxy
-        to be built with the exact same Go version <em>and</em> the same version of every shared
-        dependency, and cannot unload. Compiling plugins in trades hot loading for something that
-        always works: real Go types, direct calls, no serialization, no version roulette.
+
+      <div class="diagram">  plugins/
+    bans.so          ← built with -buildmode=plugin, loaded at startup
+    bans/            ← the plugin's own directory, created for it
+      config.yml
+    greeter.so
+    greeter/
+      config.yml</div>
+
+      <p>Adding, updating or removing a plugin is a file operation plus a restart of the proxy.</p>
+
+      <h3>What Go requires</h3>
+      <p>
+        Go's plugin support is real but strict. These are hard requirements, not recommendations:
+      </p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Requirement</th><th>Why, and what happens otherwise</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>The proxy must be built with <code>CGO_ENABLED=1</code></td>
+              <td>A static binary cannot load plugins. Otherwise every plugin fails with
+                  <code>plugin: not implemented</code>. The official Linux release builds and
+                  <code>make build</code> already enable it.</td>
+            </tr>
+            <tr>
+              <td>Linux or macOS</td>
+              <td>Go cannot load plugins on Windows at all. On Windows, compile the plugin into
+                  the binary instead.</td>
+            </tr>
+            <tr>
+              <td>Same Go toolchain as the proxy</td>
+              <td>The runtime refuses a plugin built with a different Go version.</td>
+            </tr>
+            <tr>
+              <td>Same version of every shared dependency</td>
+              <td>The plugin and the proxy share <code>vortex/plugin</code>,
+                  <code>vortex/event</code>, Spectrum and gophertunnel. A mismatch fails with
+                  <em>"different version of package"</em>. Build plugins from the Vortex source
+                  tree of the version you run.</td>
+            </tr>
+            <tr>
+              <td>Same OS and architecture</td>
+              <td>A plugin is native code: no cross loading.</td>
+            </tr>
+          </tbody>
+        </table>
       </div>
-      <p>What that buys you, compared to a proxy that loads jars at runtime:</p>
-      <ul>
-        <li>A plugin holds a real <code>*session.Session</code> and calls methods on it.</li>
-        <li>No IPC and no serialization on the event path.</li>
-        <li>A compile error instead of a crash when the proxy API changes.</li>
-      </ul>
-      <p>And what it costs: to add, update or remove a plugin you rebuild and restart the proxy.</p>
+      <div class="note">
+        In practice this means <strong>rebuild your plugins whenever you update Vortex</strong>.
+        The loader reports each of these cases with the fix instead of the raw runtime error, and
+        a plugin that fails to open is skipped — the proxy and the other plugins still start.
+      </div>
+
+      <h3>Plugins cannot be unloaded</h3>
+      <p>
+        Go never unloads a plugin, so there is no reload or runtime disable: changing a plugin
+        means restarting the proxy. To keep a plugin from loading without deleting its file, list
+        its name under <code>plugins.disabled</code> in <code>config.yml</code>.
+      </p>
+
+      <h3>The alternative: compiling a plugin in</h3>
+      <p>
+        The same code also works compiled into the binary — rename the package from
+        <code>main</code> to the plugin's name and import it from <code>cmd/vortex</code>. That
+        drops every requirement above (it works on Windows, needs no cgo) at the cost of
+        rebuilding the proxy to change a plugin. Both kinds run side by side.
+      </p>
     </section>
 
     <section id="first">
       <h2>Your first plugin</h2>
-      <p>Create a package anywhere in your module — or in a fork of Vortex under <code>plugins/</code>:</p>
+      <p>Create a <code>main</code> package, for example under <code>plugins/src/welcome/</code>
+         in your Vortex checkout:</p>
 
-<pre><code>package welcome
+<pre><code>package main
 
 import (
     "fmt"
@@ -91,6 +150,10 @@ import (
 )
 
 func init() { plugin.Register(&amp;Welcome{}) }
+
+// main is never called: a plugin is loaded, not executed. It exists so the
+// package also builds with "go build ./...".
+func main() {}
 
 type Welcome struct {
     plugin.Base // no-op Enable and Disable
@@ -121,16 +184,52 @@ func (w *Welcome) Enable(proxy plugin.Proxy) error {
     return nil
 }</code></pre>
 
-      <p>Then load it by importing the package in <code>cmd/vortex/main.go</code> and rebuilding:</p>
-
-<pre><code>import (
-    _ "github.com/you/yourmodule/welcome"
-)</code></pre>
-
       <p>
         A complete, working example lives in
         <a href="https://github.com/ybriismc/Vortex/tree/main/examples/plugins/greeter"><code>examples/plugins/greeter</code></a>.
       </p>
+    </section>
+
+    <section id="build">
+      <h2>Build and install</h2>
+      <p>Build the plugin into the proxy's plugin directory and restart the proxy:</p>
+
+<pre><code>go build -buildmode=plugin -o plugins/welcome.so ./plugins/src/welcome</code></pre>
+
+      <p>The Makefile wraps that, and also builds every example at once:</p>
+
+<pre><code>make plugin DIR=./plugins/src/welcome    # one plugin
+make plugin DIR=./examples/plugins/greeter NAME=greeter
+make plugins                            # every example plugin</code></pre>
+
+      <p>
+        <code>./start.sh</code> goes one step further on private hosts: any plugin whose sources
+        sit in <code>plugins/src/&lt;name&gt;/</code> is rebuilt automatically before the proxy
+        starts, so updating a plugin is editing its code and restarting.
+      </p>
+
+      <p>On startup the proxy reports what it loaded:</p>
+
+<pre><code>level=INFO msg="loaded plugin" plugin=welcome version=1.0.0
+level=INFO msg="enabled plugins" count=1 plugins="welcome 1.0.0"</code></pre>
+
+      <h3>How a plugin announces itself</h3>
+      <p>
+        Calling <code>plugin.Register</code> from <code>init</code> is the way to do it. For cases
+        where that does not fit, the loader also accepts an exported symbol — the first one it
+        finds wins:
+      </p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Symbol</th><th>Declaration</th></tr></thead>
+          <tbody>
+            <tr><td><code>init</code> + <code>Register</code></td><td><code>func init() { plugin.Register(&amp;Welcome{}) }</code></td></tr>
+            <tr><td><code>New</code></td><td><code>func New() plugin.Plugin { return &amp;Welcome{} }</code></td></tr>
+            <tr><td><code>Plugin</code></td><td><code>var Plugin = &amp;Welcome{}</code></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>A file that offers none of them is reported and skipped.</p>
     </section>
 
     <section id="lifecycle">
