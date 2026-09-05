@@ -1,24 +1,23 @@
-module github.com/ybriismc/vortex
+module github.com/cooldogedev/spectrum
 
 go 1.25.0
 
 require (
-	github.com/cooldogedev/spectrum v0.0.44
+	github.com/cooldogedev/spectral v0.0.5
 	github.com/go-gl/mathgl v1.2.0
+	github.com/golang/snappy v1.0.0
+	github.com/quic-go/quic-go v0.60.0
 	github.com/sandertv/gophertunnel v1.61.0
-	gopkg.in/yaml.v3 v3.0.1
+	github.com/scylladb/go-set v1.0.2
 )
 
 require (
-	github.com/coder/websocket v1.8.14 // indirect
-	github.com/cooldogedev/spectral v0.0.5 // indirect
 	github.com/coreos/go-oidc/v3 v3.20.0 // indirect
-	github.com/df-mc/go-nethernet v1.0.20 // indirect
-	github.com/df-mc/go-playfab/v2 v2.0.2 // indirect
-	github.com/df-mc/go-xsapi/v2 v2.0.3 // indirect
+	github.com/df-mc/go-nethernet v1.0.18 // indirect
+	github.com/df-mc/go-playfab v1.0.0 // indirect
+	github.com/df-mc/go-xsapi v1.0.1 // indirect
 	github.com/df-mc/jsonc v1.0.5 // indirect
 	github.com/go-jose/go-jose/v4 v4.1.4 // indirect
-	github.com/golang/snappy v1.0.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/klauspost/compress v1.19.1 // indirect
 	github.com/pion/datachannel v1.6.2 // indirect
@@ -37,10 +36,9 @@ require (
 	github.com/pion/transport/v4 v4.0.2 // indirect
 	github.com/pion/turn/v5 v5.0.12 // indirect
 	github.com/pion/webrtc/v4 v4.2.17 // indirect
-	github.com/quic-go/quic-go v0.60.0 // indirect
-	github.com/sandertv/go-raknet v1.15.2-0.20260705184311-0d1fd09e2cf6 // indirect
-	github.com/scylladb/go-set v1.0.2 // indirect
+	github.com/sandertv/go-raknet v1.15.1 // indirect
 	github.com/wlynxg/anet v0.0.5 // indirect
+	go.uber.org/mock v0.6.0 // indirect
 	golang.org/x/crypto v0.54.0 // indirect
 	golang.org/x/exp v0.0.0-20260718201538-764159d718ef // indirect
 	golang.org/x/net v0.57.0 // indirect
@@ -49,8 +47,3 @@ require (
 	golang.org/x/text v0.40.0 // indirect
 	golang.org/x/time v0.15.0 // indirect
 )
-
-// Spectrum has not been released against the gophertunnel that speaks protocol
-// 2169 yet. third_party/spectrum is v0.0.44 with a two line patch for the
-// player list change; drop this replace once upstream catches up.
-replace github.com/cooldogedev/spectrum => ./third_party/spectrum

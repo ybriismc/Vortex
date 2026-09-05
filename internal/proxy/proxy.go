@@ -16,6 +16,7 @@ import (
 	"github.com/cooldogedev/spectrum/session"
 	"github.com/cooldogedev/spectrum/util"
 	"github.com/sandertv/gophertunnel/minecraft"
+	"github.com/sandertv/gophertunnel/minecraft/protocol"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/login"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
 	"github.com/ybriismc/vortex/event"
@@ -146,6 +147,7 @@ func (v *Vortex) Listen() error {
 	}
 
 	v.logger.Info("vortex is ready",
+		"protocol", protocol.CurrentProtocol,
 		"transport", v.conf.Proxy.Transport,
 		"xbox_authentication", v.conf.Proxy.XboxAuthentication,
 		"balancer", v.conf.Servers.Balancer,

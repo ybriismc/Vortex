@@ -10,6 +10,7 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/sandertv/gophertunnel/minecraft/protocol"
 	"github.com/ybriismc/vortex/event"
 	"github.com/ybriismc/vortex/internal/config"
 	"github.com/ybriismc/vortex/internal/proxy"
@@ -29,7 +30,7 @@ func main() {
 	flag.Parse()
 
 	if *print {
-		fmt.Println("vortex", version)
+		fmt.Printf("vortex %v (Minecraft %v, protocol %v)\n", version, protocol.CurrentVersion, protocol.CurrentProtocol)
 		return
 	}
 
@@ -59,7 +60,11 @@ func main() {
 		os.Exit(1)
 	}
 
-	logger.Info("starting vortex", "version", version)
+	logger.Info("starting vortex",
+		"version", version,
+		"minecraft", protocol.CurrentVersion,
+		"protocol", protocol.CurrentProtocol,
+	)
 	if err := vortex.Listen(); err != nil {
 		logger.Error("failed to start the proxy", "err", err)
 		os.Exit(1)

@@ -11,6 +11,19 @@ workflow publishes as the release notes.
 
 Nothing yet.
 
+## [0.4.0] - 2026-09-05
+
+Minecraft 1.26.45, protocol 2169. See [v0.4.0.md](v0.4.0.md).
+
+### Changed
+
+- gophertunnel updated to v1.61.0, moving the proxy from protocol 1001 to
+  **2169** (Minecraft 1.26.45).
+- The protocol is printed by `./vortex -version` and logged on startup.
+- `third_party/spectrum` carries Spectrum v0.0.44 with a two line patch for the
+  player list change, used through a `replace` directive, because upstream has
+  no release against gophertunnel v1.61.0 yet.
+
 ## [0.3.0] - 2026-09-04
 
 Plugins loaded from the plugin directory. See [v0.3.0.md](v0.3.0.md).
@@ -71,7 +84,8 @@ First release. See [v0.1.0.md](v0.1.0.md).
 - GitHub Pages documentation, build and release workflows, a Pterodactyl egg and
   a start script for private hosts.
 
-[Unreleased]: https://github.com/ybriismc/Vortex/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/ybriismc/Vortex/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/ybriismc/Vortex/releases/tag/v0.4.0
 [0.3.0]: https://github.com/ybriismc/Vortex/releases/tag/v0.3.0
 [0.2.0]: https://github.com/ybriismc/Vortex/releases/tag/v0.2.0
 [0.1.0]: https://github.com/ybriismc/Vortex/releases/tag/v0.1.0

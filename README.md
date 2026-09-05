@@ -74,8 +74,13 @@ Spectrum is the foundation of Vortex. The points that matter when running this p
 
 ## Requirements
 
+- Minecraft: Bedrock Edition **1.26.45 (protocol 2169)**
 - Go 1.25 or newer
-- A downstream server running Spectrum (spectrum-df or spectrum-pm)
+- A downstream server running Spectrum (spectrum-df or spectrum-pm) on the same
+  protocol
+
+The protocol comes from [gophertunnel](https://github.com/sandertv/gophertunnel);
+`./vortex -version` prints the version the binary speaks.
 
 ## Installation
 
@@ -254,6 +259,7 @@ internal/config     YAML configuration, defaults and validation
 internal/discovery  server.Discovery with pools and balancing
 internal/guard      session.Processor with rate limit and filters
 internal/proxy      Spectrum wiring, animations, packs and API
+third_party         patched Spectrum (see third_party/spectrum/PATCH.md)
 docs                GitHub Pages documentation
 changelogs          release notes
 pterodactyl         egg for the Pterodactyl panel
