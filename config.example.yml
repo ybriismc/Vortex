@@ -56,10 +56,12 @@ security:
   max_packet_size: 2097152
 
 plugins:
-  # Plugins são compilados junto com o binário: importe o pacote do plugin em
-  # cmd/vortex e recompile. Veja docs/plugins.html.
+  # Plugins são arquivos .so (go build -buildmode=plugin) carregados na
+  # inicialização. Exige proxy compilado com CGO_ENABLED=1, em Linux ou macOS.
+  # Veja docs/plugins.html.
   enabled: true
-  # Pasta onde cada plugin recebe um diretório para seus próprios arquivos.
+  # Pasta dos arquivos .so; cada plugin também recebe um diretório com o seu
+  # nome ali dentro para os arquivos dele.
   directory: "plugins"
   # Nomes de plugins que não devem ser carregados.
   disabled: []

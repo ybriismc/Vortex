@@ -35,3 +35,8 @@ go.work.sum
 /vortex
 /config.yml
 /resource_packs/
+
+# Plugins built into the plugin directory
+/plugins/*.so
+/plugins/*/
+!/plugins/src/

@@ -38,6 +38,11 @@ jobs:
       - name: Test
         run: go test -race ./...
 
+      - name: Build a loadable plugin
+        run: |
+          CGO_ENABLED=1 go build -o vortex ./cmd/vortex
+          go build -buildmode=plugin -o plugins/greeter.so ./examples/plugins/greeter
+
   build:
     name: Build ${{ matrix.goos }}/${{ matrix.goarch }}
     runs-on: ubuntu-latest
@@ -46,11 +51,13 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { goos: linux, goarch: amd64 }
-          - { goos: linux, goarch: arm64 }
-          - { goos: windows, goarch: amd64 }
-          - { goos: darwin, goarch: amd64 }
-          - { goos: darwin, goarch: arm64 }
+          # Only the native build enables cgo: cross-compiling it would need a
+          # cross toolchain, which the release workflow installs.
+          - { goos: linux, goarch: amd64, cgo: "1" }
+          - { goos: linux, goarch: arm64, cgo: "0" }
+          - { goos: windows, goarch: amd64, cgo: "0" }
+          - { goos: darwin, goarch: amd64, cgo: "0" }
+          - { goos: darwin, goarch: arm64, cgo: "0" }
     steps:
       - uses: actions/checkout@v4
 
@@ -63,7 +70,7 @@ jobs:
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
-          CGO_ENABLED: "0"
+          CGO_ENABLED: ${{ matrix.cgo }}
         run: |
           binary=vortex
           if [ "$GOOS" = "windows" ]; then binary=vortex.exe; fi

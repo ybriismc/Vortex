@@ -10,10 +10,13 @@ import (
 	"github.com/ybriismc/vortex/event"
 )
 
-// Manager loads, enables and disables the registered plugins.
+// Manager loads, enables and disables plugins. It takes both the plugins
+// compiled into the binary and the ones the Loader opens from the plugin
+// directory at startup.
 type Manager struct {
 	bus      *event.Bus
 	logger   *slog.Logger
+	loader   *Loader
 	dir      string
 	disabled []string
 
@@ -24,14 +27,21 @@ type Manager struct {
 // NewManager creates a Manager storing plugin directories under dir. Plugins
 // whose name appears in disabled are skipped entirely.
 func NewManager(bus *event.Bus, logger *slog.Logger, dir string, disabled []string) *Manager {
-	return &Manager{bus: bus, logger: logger, dir: dir, disabled: disabled}
+	return &Manager{
+		bus:      bus,
+		logger:   logger,
+		loader:   NewLoader(logger, dir),
+		dir:      dir,
+		disabled: disabled,
+	}
 }
 
-// Load loads every registered plugin, in dependency order. A plugin that
-// fails to load, or whose dependency is missing, is skipped rather than
-// stopping the proxy.
+// Load opens the plugin files in the plugin directory and loads every plugin,
+// in dependency order. A plugin that fails to load, or whose dependency is
+// missing, is skipped rather than stopping the proxy.
 func (m *Manager) Load() error {
-	sorted, skipped, err := order(Registered())
+	opened := m.loader.Open()
+	sorted, skipped, err := order(append(Registered(), opened...))
 	if err != nil {
 		return err
 	}
