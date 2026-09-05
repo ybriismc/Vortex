@@ -80,9 +80,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ steps.tag.outputs.value }}
         run: |
+          # --target pins the tag to the commit that was actually built, which
+          # matters when the workflow is dispatched on a branch.
           notes="changelogs/${VERSION}.md"
           if [ -f "$notes" ]; then
-            gh release create "$VERSION" dist/* --title "Vortex $VERSION" --notes-file "$notes"
+            gh release create "$VERSION" dist/* \
+              --title "Vortex $VERSION" --notes-file "$notes" --target "$GITHUB_SHA"
           else
-            gh release create "$VERSION" dist/* --title "Vortex $VERSION" --generate-notes
+            gh release create "$VERSION" dist/* \
+              --title "Vortex $VERSION" --generate-notes --target "$GITHUB_SHA"
           fi
