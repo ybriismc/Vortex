@@ -13,13 +13,11 @@ Nothing yet.
 
 ## [1.0.0] - 2026-09-05
 
-First stable release: the proxy and the Endstone plugin, published together.
-See [v1.0.0.md](v1.0.0.md).
+First stable release of the proxy. See [v1.0.0.md](v1.0.0.md).
 
 ### Added
 
-- Release builds of the proxy for Linux, Windows and macOS, and the
-  `endstone-vortex` wheel, in the same release.
+- Release builds of the proxy for Linux, Windows and macOS.
 
 ### Changed
 
