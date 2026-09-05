@@ -11,6 +11,20 @@ workflow publishes as the release notes.
 
 Nothing yet.
 
+## [1.0.0] - 2026-09-05
+
+First stable release: the proxy and the Endstone plugin, published together.
+See [v1.0.0.md](v1.0.0.md).
+
+### Added
+
+- Release builds of the proxy for Linux, Windows and macOS, and the
+  `endstone-vortex` wheel, in the same release.
+
+### Changed
+
+- The release workflow pins the tag to the commit it built.
+
 ## [0.4.0] - 2026-09-05
 
 Minecraft 1.26.45, protocol 2169. See [v0.4.0.md](v0.4.0.md).
@@ -84,7 +98,8 @@ First release. See [v0.1.0.md](v0.1.0.md).
 - GitHub Pages documentation, build and release workflows, a Pterodactyl egg and
   a start script for private hosts.
 
-[Unreleased]: https://github.com/ybriismc/Vortex/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/ybriismc/Vortex/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/ybriismc/Vortex/releases/tag/v1.0.0
 [0.4.0]: https://github.com/ybriismc/Vortex/releases/tag/v0.4.0
 [0.3.0]: https://github.com/ybriismc/Vortex/releases/tag/v0.3.0
 [0.2.0]: https://github.com/ybriismc/Vortex/releases/tag/v0.2.0
